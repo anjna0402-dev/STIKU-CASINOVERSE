@@ -1,0 +1,13 @@
+{
+  "name": "stiku-casino",
+  "version": "2.0.0",
+  "description": "Stiku Casino — Node.js server (no dependencies) that serves casino.html and runs all games on the server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}
