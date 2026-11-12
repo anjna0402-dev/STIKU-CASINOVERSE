@@ -1,26 +1,46 @@
-// Stiku Casino server — zero dependencies. Run:  node server.js   (then open http://localhost:3000)
-// The server rolls every game with its own secret seed and pays out itself; the browser only displays results.
-// Env: PORT, MOD_HASH, MAX_BET (default 1000), MIN_WITHDRAW (default 2), MIN_DEPOSIT (default 0.3),
-//      DATA_DIR (folder for data.json), NOWPAYMENTS_API_KEY + NOWPAYMENTS_IPN_SECRET + PUBLIC_URL (optional automatic crypto deposits)
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
+const { MongoClient } = require('mongodb');
+
 const PORT = process.env.PORT || 3000;
-// Where accounts are stored. On Render, attach a Persistent Disk and set DATA_DIR to its mount path (e.g. /var/data) so accounts survive restarts and deploys.
-const DATA_DIR = process.env.DATA_DIR || __dirname; try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
-const DATA = path.join(DATA_DIR, 'data.json');
-// Moderator key: set MOD_KEY in your environment (Render > Environment). The fallback below only exists so the site works on the first deploy — change it.
+const MONGO_URI = process.env.MONGO_URI;
 const MOD_KEY = process.env.MOD_KEY || 'Choudhary@11';
-if (!process.env.MOD_KEY) console.warn('WARNING: MOD_KEY is not set — using the default moderator key. Set MOD_KEY in your environment variables.');
+if (!process.env.MOD_KEY) console.warn('WARNING: MOD_KEY is not set — using the default moderator key.');
 const MOD_HASH = crypto.createHash('sha256').update('stiku-mod:' + MOD_KEY).digest('hex');
-const modTokens = {}, modFails = {};   // moderator sessions: random token -> expiry time (the key itself never leaves the server)
+const modTokens = {}, modFails = {};
 const MAX_BET = +process.env.MAX_BET || 1000, MIN_BET = 0.01, MIN_WITHDRAW = +process.env.MIN_WITHDRAW || 2, MIN_DEPOSIT = +process.env.MIN_DEPOSIT || 0.3;
 const NP_KEY = process.env.NOWPAYMENTS_API_KEY || '', NP_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || '', PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
 let db = { users: {}, tokens: {}, codes: [], uses: {}, deposits: [], withdrawals: [] };
-try { db = Object.assign(db, JSON.parse(fs.readFileSync(DATA, 'utf8'))); } catch (e) {}
-let dirty = false; const save = () => { dirty = true; };
-setInterval(() => { if (!dirty) return; dirty = false; try { fs.writeFileSync(DATA + '.tmp', JSON.stringify(db)); fs.renameSync(DATA + '.tmp', DATA); } catch (e) { console.error('save failed', e.message); } }, 1000);
-process.on('SIGINT', () => { try { fs.writeFileSync(DATA, JSON.stringify(db)); } catch (e) {} process.exit(); });
+let mongoCollection = null;
 
+async function initDB() {
+  if (!MONGO_URI) {
+    console.error('ERROR: MONGO_URI environment variable is missing!');
+    process.exit(1);
+  }
+  const client = new MongoClient(MONGO_URI);
+  await client.connect();
+  mongoCollection = client.db('stikucasino').collection('state');
+  const saved = await mongoCollection.findOne({ _id: 'main_state' });
+  if (saved) {
+    delete saved._id;
+    db = Object.assign(db, saved);
+    console.log('Loaded database state from MongoDB Atlas!');
+  } else {
+    await mongoCollection.insertOne(Object.assign({ _id: 'main_state' }, db));
+    console.log('Initialized new database state in MongoDB Atlas.');
+  }
+}
+
+let dirty = false;
+const save = () => { dirty = true; };
+setInterval(async () => {
+  if (!dirty || !mongoCollection) return;
+  dirty = false;
+  try {
+    await mongoCollection.updateOne({ _id: 'main_state' }, { $set: db }, { upsert: true });
+  } catch (e) { console.error('MongoDB save failed', e.message); }
+}, 2000);
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
 const rhex = n => crypto.randomBytes(n).toString('hex');
 const blank = () => ({ wagered: 0, bets: 0, wins: 0, payout: 0, biggest: { amt: 0, mult: 0, game: '' }, games: {}, daily: {}, curve: [0], hidden: false });
