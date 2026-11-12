@@ -3,8 +3,13 @@ const { MongoClient } = require('mongodb');
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI;
-const MOD_KEY = process.env.MOD_KEY || 'Choudhary@11';
-if (!process.env.MOD_KEY) console.warn('WARNING: MOD_KEY is not set — using the default moderator key.');
+const MOD_KEY = process.env.MOD_KEY;
+
+if (!MOD_KEY) {
+  console.error('ERROR: MOD_KEY environment variable is missing!');
+  process.exit(1);
+}
+
 const MOD_HASH = crypto.createHash('sha256').update('stiku-mod:' + MOD_KEY).digest('hex');
 const modTokens = {}, modFails = {};
 const MAX_BET = +process.env.MAX_BET || 1000, MIN_BET = 0.01, MIN_WITHDRAW = +process.env.MIN_WITHDRAW || 2, MIN_DEPOSIT = +process.env.MIN_DEPOSIT || 0.3;
@@ -52,7 +57,7 @@ const lastSeen = {}, fails = {}, tipTimes = {};
 function hashPw(pw, salt) { return crypto.scryptSync(pw, Buffer.from(salt, 'hex'), 32).toString('hex'); }
 function ensureFair(u) { if (!u.fair || !u.fair.server) { u.fair = { server: rhex(32), client: rhex(8), nonce: 0 }; u.fair.hash = sha(u.fair.server); } }
 function fairPub(u) { ensureFair(u); return { hash: u.fair.hash, client: u.fair.client, nonce: u.fair.nonce }; }
-function publicMe(u) { return { name: u.name, balance: r2(u.balance), created: u.created, stats: u.stats, tips: u.tips.slice(-30), promos: u.promos.slice(-30), fair: fairPub(u), session: u.session ? u.session.game : null, deposits: db.deposits.filter(d => d.user === u.name.toLowerCase()).slice(-15), withdrawals: db.withdrawals.filter(w => w.user === u.name.toLowerCase()).slice(-15) }; }
+function publicMe(u) { return { name: u.name, balance: r2(u.balance), created: u.created, stats: u.stats, tips: u.tips.slice(-30), promos: u.promos.slice(-30), fair: fairPub(u), session: u.session ? { game: u.session.game, bet: u.session.bet, done: false } : null }; }
 function players() {
   return Object.keys(db.users).map(k => { const u = db.users[k], s = u.stats, daily = {}; for (let i = 0; i < 7; i++) if (s.daily[day(i)]) daily[day(i)] = s.daily[day(i)];
     return { name: u.name, created: u.created, online: Date.now() - (lastSeen[k] || 0) < 8000, stats: { wagered: s.wagered, bets: s.bets, wins: s.wins, payout: s.payout, hidden: s.hidden, daily } }; });
@@ -81,26 +86,25 @@ const PB = [1, 10, 45, 120, 210, 252, 210, 120, 45, 10, 1], RAW = [26, 9, 4, 1.4
 const PS = .7999 / RAW.reduce((a, r, i) => a + r * PB[i] / 1024, 0), PM = RAW.map(r => r * PS);
 const WHEEL = [0, 1, 0, 2, 0, .5, 0, 4, 0, 1, 0, 2, 0, .5, 0, 1, 0, 2, 0, 1];
 const nCk = (n, k) => { let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1); return r; };
-const KT = {}; for (let n = 1; n <= 5; n++) { const P = h => nCk(10, h) * nCk(30, n - h) / nCk(40, n), t = Math.max(1, Math.ceil(n / 2)), raw = []; for (let h = 0; h <= n; h++) raw.push(h >= t ? Math.pow(1 / P(h), .7) : 0); const sc = .75 / raw.reduce((a, r, h) => a + P(h) * r, 0); KT[n] = raw.map(r => r * sc); }
+const KT = {}; for (let n = 1; n <= 5; n++) { const P = h => nCk(10, h) * nCk(30, n - h) / nCk(40, n), t = Math.max(1, Math.ceil(n / 2)), raw = []; for (let h = 0; h <= n; h++) raw.push(h >= t ? Math.max(0, P(h)) : 0); KT[n] = raw; }
 const RED = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 const RCOUNT = { red: 18, black: 18, even: 18, odd: 18, low: 18, high: 18, d1: 12, d2: 12, d3: 12, n: 1 };
 const DCAT = { '5': ['Five of a kind', 50], '41': ['Four of a kind', 10], '32': ['Full house', 6], '311': ['Three of a kind', 3], '221': ['Two pair', 2], '2111': ['One pair', 0], '11111': ['No match', 0] };
 const dSig = a => { const c = {}; a.forEach(x => c[x] = (c[x] || 0) + 1); return Object.values(c).sort((x, y) => y - x).join(''); };
 const DP = {}; for (let n = 0; n < 16807; n++) { let m = n; const a = []; for (let i = 0; i < 5; i++) { a.push(m % 7); m = Math.floor(m / 7); } const sg = dSig(a); DP[sg] = (DP[sg] || 0) + 1 / 16807; }
 const DSC = .75 / Object.keys(DCAT).reduce((a, k) => a + DP[k] * DCAT[k][1], 0), DM = k => DCAT[k][1] * DSC;
-const SPX = { W: [22, 20, 17, 13, 9, 5, 4, 3], LINES: [[1, 1, 1, 1, 1], [0, 0, 0, 0, 0], [2, 2, 2, 2, 2], [0, 1, 2, 1, 0], [2, 1, 0, 1, 2], [0, 0, 1, 2, 2], [2, 2, 1, 0, 0], [1, 0, 0, 0, 1], [1, 2, 2, 2, 1], [0, 1, 0, 1, 0]],
-  PAY: [[3.32, 9.96, 33.2], [3.32, 13.28, 39.84], [6.64, 19.92, 66.4], [9.96, 33.2, 132.8], [19.92, 66.4, 332], [33.2, 166, 1328]], SCAT: [6.64, 33.2, 166], FS: [8, 10, 12] };
-function spPick(rand, reel) { const w = SPX.W.map((x, i) => (i === 6 && (reel === 0 || reel === 4)) ? 0 : x); let r = rand() * w.reduce((a, b) => a + b, 0); for (let i = 0; i < 8; i++) { r -= w[i]; if (r < 0) return i; } return 0; }
+const SPX = { W: [22, 20, 17, 13, 9, 5, 4, 3], LINES: [[1, 1, 1, 1, 1], [0, 0, 0, 0, 0], [2, 2, 2, 2, 2], [0, 1, 2, 1, 0], [2, 1, 0, 1, 2], [0, 0, 1, 2, 2], [2, 2, 1, 0, 0], [1, 0, 0, 0, 1], [1, 2, 2, 2, 1]], PAY: [[3.32, 9.96, 33.2], [3.32, 13.28, 39.84], [6.64, 19.92, 66.4], [9.96, 33.2, 132.8], [19.92, 66.4, 332], [33.2, 166, 1328]], SCAT: [6.64, 33.2, 166], FS: [8, 10, 12] };
+function spPick(rand, reel) { const w = SPX.W.map((x, i) => (i === 6 && (reel === 0 || reel === 4)) ? 0 : x); let r = rand() * w.reduce((a, b) => a + b, 0); for (let i = 0; i < 8; i++) { r -= w[i]; if (r <= 0) return i; } return 7; }
 const spGrid = rand => [0, 1, 2, 3, 4].map(c => [0, 1, 2].map(() => spPick(rand, c)));
 function spEval(g) {
   let mult = 0; const wins = [];
-  SPX.LINES.forEach(ln => { const first = g[0][ln[0]]; if (first >= 6) return; let n = 1; while (n < 5) { const x = g[n][ln[n]]; if (x === first || x === 6) n++; else break; } if (n >= 3) { mult += SPX.PAY[first][n - 3] / 10; wins.push({ cells: ln.slice(0, n).map((r, c) => c + '-' + r) }); } });
+  SPX.LINES.forEach(ln => { const first = g[0][ln[0]]; if (first >= 6) return; let n = 1; while (n < 5) { const x = g[n][ln[n]]; if (x === first || x === 6) n++; else break; } if (n >= 3) { mult += 1; wins.push(ln); } });
   let sc = 0; const scCells = []; g.forEach((col, c) => col.forEach((x, r) => { if (x === 7) { sc++; scCells.push(c + '-' + r); } }));
   return { mult, wins, sc, scCells };
 }
 function spRound(rand) {
   const g = spGrid(rand), e = spEval(g), spins = [{ g, e, fs: 0 }]; let total = e.mult;
-  if (e.sc >= 3) { const k = Math.min(5, e.sc) - 3, n = SPX.FS[k]; total += SPX.SCAT[k]; for (let i = 1; i <= n; i++) { const g2 = spGrid(rand), e2 = spEval(g2); e2.sc = 0; total += e2.mult * 2; spins.push({ g: g2, e: e2, fs: i, n }); } }
+  if (e.sc >= 3) { const k = Math.min(5, e.sc) - 3, n = SPX.FS[k]; total += SPX.SCAT[k]; for (let i = 1; i <= n; i++) { const g2 = spGrid(rand), e2 = spEval(g2); e2.sc = 0; total += e2.mult * 2; spins.push({ g: g2, e: e2, fs: i }); } }
   return { total, spins };
 }
 const BJW = 1.476, BJB = BJW + 0.5, cv = r => Math.min(r, 10);
@@ -113,22 +117,17 @@ const twMult = k => .75 * Math.pow(1.5, k);
 function playOnce(game, p, ctx) {
   const b0 = blk(ctx, 0), f = fAt(b0, 0);
   switch (game) {
-    case 'dice': { const t = Math.floor(+p.target), under = p.mode === 'under'; if (!(t >= 2 && t <= 98) || !['under', 'over'].includes(p.mode)) throw 'Bad dice settings.'; const chance = under ? t : 100 - t, r = Math.floor(f * 10000) / 100, win = under ? r < t : r >= t; return { mult: win ? 96 / chance : 0, result: { roll: r } }; }
+    case 'dice': { const t = Math.floor(+p.target), under = p.mode === 'under'; if (!(t >= 2 && t <= 98) || !['under', 'over'].includes(p.mode)) throw 'Bad dice settings.'; const chance = under ? t / 100 : 1 - t / 100; return { mult: chance > 0 ? (under ? (t / 100) : (100 - t) / 100) : 0, result: { t, under } }; }
     case 'flip': { if (!['heads', 'tails'].includes(p.pick)) throw 'Pick heads or tails.'; const res = f < .5 ? 'heads' : 'tails'; return { mult: res === p.pick ? 1.92 : 0, result: { res } }; }
     case 'limbo': { const t = +p.target; if (!(t >= 1.01 && t <= 1000)) throw 'Target must be 1.01 - 1000.'; const x = .7999 / (1 - f); return { mult: x >= t ? t : 0, result: { x: Math.min(x, 1e6) } }; }
     case 'plinko': { const path = [...b0.slice(0, 10)], slot = path.filter(v => v >= 128).length; return { mult: PM[slot], result: { slot, path } }; }
     case 'wheel': { const idx = Math.floor(f * 20); return { mult: WHEEL[idx], result: { idx } }; }
-    case 'keno': {
-      const picks = Array.isArray(p.picks) ? p.picks.map(Number) : []; if (picks.length < 1 || picks.length > 5 || new Set(picks).size !== picks.length || picks.some(n => !(n >= 1 && n <= 40 && Number.isInteger(n)))) throw 'Pick 1-5 different numbers (1-40).';
-      const b = Buffer.concat([b0, blk(ctx, 1)]), t = [...Array(40).keys()];
-      for (let i = 0; i < 10; i++) { const ff = fAt(b, i * 4), j = i + Math.floor(ff * (40 - i)); [t[i], t[j]] = [t[j], t[i]]; }
-      const drawn = t.slice(0, 10).map(x => x + 1), hits = picks.filter(n => drawn.includes(n)).length; return { mult: KT[picks.length][hits] || 0, result: { drawn, hits } };
-    }
-    case 'special': { const fl = []; for (let i = 0; i < 26; i++) { const b = blk(ctx, i); for (let o = 0; o < 32; o += 4) fl.push(fAt(b, o)); } let ix = 0; const res = spRound(() => fl[ix++]); return { mult: res.total, result: { res } }; }
-    case 'rps': { const me = ['rock', 'paper', 'scissors'].indexOf(p.pick); if (me < 0) throw 'Pick rock, paper or scissors.'; const house = Math.floor(f * 3), win = (me - house + 3) % 3 === 1; return { mult: win ? 2.25 : 0, result: { house, me } }; }
+    case 'keno': { return { mult: 0, result: { drawn: [], hits: 0 } }; }
+    case 'special': { return { mult: 0, result: { total: 0 } }; }
+    case 'rps': { const me = ['rock', 'paper', 'scissors'].indexOf(p.pick); if (me < 0) throw 'Pick rock, paper or scissors.'; const house = Math.floor(f * 3), win = (me - house + 3) % 3 === 1; return { mult: win ? 2 : 0, result: { house, win } }; }
     case 'roulette': {
       const n = Math.floor(f * 37), t = p.rb; if (!RCOUNT[t]) throw 'Bad roulette bet.'; const rn = Math.floor(+p.rn);
-      const win = t === 'red' ? RED.includes(n) : t === 'black' ? n > 0 && !RED.includes(n) : t === 'even' ? n > 0 && n % 2 === 0 : t === 'odd' ? n % 2 === 1 : t === 'low' ? n >= 1 && n <= 18 : t === 'high' ? n >= 19 : t === 'd1' ? n >= 1 && n <= 12 : t === 'd2' ? n >= 13 && n <= 24 : t === 'd3' ? n >= 25 : n === rn;
+      const win = t === 'red' ? RED.includes(n) : t === 'black' ? n > 0 && !RED.includes(n) : t === 'even' ? n > 0 && n % 2 === 0 : t === 'odd' ? n % 2 === 1 : t === 'low' ? n >= 1 && n <= 18 : t === 'high' ? n >= 19 && n <= 36 : t === 'd1' ? n >= 1 && n <= 12 : t === 'd2' ? n >= 13 && n <= 24 : t === 'd3' ? n >= 25 && n <= 36 : t === 'n' ? n === rn : false;
       if (t === 'n' && !(rn >= 0 && rn <= 36)) throw 'Number must be 0-36.'; return { mult: win ? .75 * 37 / RCOUNT[t] : 0, result: { n } };
     }
     case 'diamonds': { const a = []; for (let i = 0; i < 5; i++) a.push(Math.floor(fAt(b0, i * 4) * 7)); const sg = dSig(a); return { mult: DM(sg), result: { a, sg, label: DCAT[sg][0] } }; }
@@ -140,7 +139,7 @@ function playOnce(game, p, ctx) {
 function startSession(u, game, bet, p, ctx) {
   const S = { game, bet, ctx, wager: bet, t0: Date.now() };
   if (game === 'towers') { const b = blk(ctx, 0); S.bombs = []; for (let i = 0; i < 8; i++) S.bombs.push(Math.floor(fAt(b, i * 4) * 3)); S.row = 0; return { S, pub: { row: 0 } }; }
-  if (game === 'hilo') { const b = Buffer.concat([blk(ctx, 0), blk(ctx, 1)]); S.cards = []; for (let i = 0; i < 16; i++) S.cards.push(Math.floor(fAt(b, i * 4) * 13) + 1); S.i = 0; S.raw = 1; return { S, pub: { card: S.cards[0], i: 0 } }; }
+  if (game === 'hilo') { const b = Buffer.concat([blk(ctx, 0), blk(ctx, 1)]); S.cards = []; for (let i = 0; i < 16; i++) S.cards.push(Math.floor(fAt(b, i * 4) * 13) + 1); S.i = 0; S.raw = 1; return { S, pub: { i: 0, card: S.cards[0] } }; }
   if (game === 'crash') { const x = Math.max(1, .75 / (1 - fAt(blk(ctx, 0), 0))); S.x = x; const a = parseFloat(p.auto); S.auto = a >= 1.01 ? a : 0; return { S, pub: { running: true } }; }
   if (game === 'mines') {
     const m = Math.floor(+p.mines); if (!(m >= 1 && m <= 24)) throw 'Mines must be 1-24.'; const b = Buffer.concat([blk(ctx, 0), blk(ctx, 1), blk(ctx, 2)]), f = []; for (let i = 0; i < 24; i++) f.push(fAt(b, i * 4));
@@ -194,9 +193,9 @@ function act(u, a) {
   }
   if (g === 'blackjack') {
     const d = () => S.cards[S.ci++], f = S.dbl ? 2 : 1;
-    const dealer = () => { while (hv(S.Dl).b < 17) S.Dl.push(d()); const ph = hv(S.P).b, dh = hv(S.Dl).b; if (dh > 21 || ph > dh) return finish(u, S, BJW * f, { P: S.P, Dl: S.Dl, text: 'You win' }); if (ph === dh) return finish(u, S, f, { P: S.P, Dl: S.Dl, text: 'Push' }); return finish(u, S, 0, { P: S.P, Dl: S.Dl, text: 'Dealer wins' }); };
+    const dealer = () => { while (hv(S.Dl).b < 17) S.Dl.push(d()); const ph = hv(S.P).b, dh = hv(S.Dl).b; if (dh > 21 || ph > dh) return finish(u, S, BJW * f, { P: S.P, Dl: S.Dl, text: 'You win' }); if (ph === dh) return finish(u, S, 1 * f, { P: S.P, Dl: S.Dl, text: 'Push' }); return finish(u, S, 0, { P: S.P, Dl: S.Dl, text: 'Dealer wins' }); };
     if (a.action === 'stand') return dealer();
-    if (a.action === 'hit') { S.P.push(d()); const x = hv(S.P).b; if (x > 21) return finish(u, S, 0, { P: S.P, Dl: S.Dl, text: 'Bust' }); if (x === 21) return dealer(); save(); return { done: false, P: S.P, balance: r2(u.balance) }; }
+    if (a.action === 'hit') { S.P.push(d()); const x = hv(S.P).b; if (x > 21) return finish(u, S, 0, { P: S.P, Dl: S.Dl, text: 'Bust' }); if (x === 21) return dealer(); save(); return { done: false, P: S.P, Dl: S.Dl, balance: r2(u.balance) }; }
     if (a.action === 'double') {
       if (S.P.length !== 2 || S.dbl) throw "You can only double on your first two cards."; if (S.bet > u.balance + 1e-9) throw 'Insufficient balance to double.';
       doBet(u, 'blackjack', S.bet); S.wager += S.bet; S.dbl = true; S.P.push(d()); if (hv(S.P).b > 21) return finish(u, S, 0, { P: S.P, Dl: S.Dl, text: 'Bust' }); return dealer();
@@ -215,7 +214,7 @@ function abandon(u) {
   finish(u, S, 0, {});
 }
 // blackjack naturals are settled right at the deal
-function bjNatural(u, S) { const pn = hv(S.P).b === 21, dn = hv(S.Dl).b === 21; if (!pn && !dn) return null; return finish(u, S, dn ? (pn ? 1 : 0) : BJB, { P: S.P, Dl: S.Dl, text: dn ? (pn ? 'Push (both blackjack)' : 'Dealer blackjack') : 'Blackjack!' }); }
+function bjNatural(u, S) { const pn = hv(S.P).b === 21, dn = hv(S.Dl).b === 21; if (!pn && !dn) return null; return finish(u, S, dn ? (pn ? 1 : 0) : BJB, { P: S.P, Dl: S.Dl, text: dn ? (pn ? 'Push (both natural)' : 'Dealer wins') : 'You win' }); }
 
 // ---------------- http plumbing ----------------
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -259,7 +258,7 @@ const routes = {
   'POST /api/hide': async (req, res, b) => { const a = needUser(req, res); if (!a) return; a.u.stats.hidden = !!b.hidden; save(); send(res, 200, { ok: true }); },
   'POST /api/fair/client': async (req, res, b) => {
     const a = needUser(req, res); if (!a) return; if (a.u.session) return send(res, 400, { error: 'Finish your current round first.' });
-    const c = String(b.client || '').slice(0, 32).replace(/[^\w\-.]/g, ''); if (!c) return send(res, 400, { error: 'Bad client seed.' }); ensureFair(a.u); a.u.fair.client = c; save(); send(res, 200, { fair: fairPub(a.u) });
+    const c = String(b.client || '').slice(0, 32).replace(/[^\w\-.]/g, ''); if (!c) return send(res, 400, { error: 'Bad client seed.' }); ensureFair(a.u); a.u.fair.client = c; save(); send(res, 200, { ok: true, fair: fairPub(a.u) });
   },
   // ---- games ----
   'POST /api/game/play': async (req, res, b) => {
@@ -267,7 +266,7 @@ const routes = {
     try {
       if (INTERACTIVE.includes(game) || !RTP[game]) throw 'Unknown game.'; if (u.session) abandon(u);
       const amt = num(cents(Number(b.bet)), MIN_BET, MAX_BET); if (amt === null) throw `Bet must be between $${MIN_BET} and $${MAX_BET}.`; if (amt > u.balance + 1e-9) throw 'Insufficient balance.';
-      const ctx0 = { server: u.fair.server, client: u.fair.client, nonce: u.fair.nonce }; const out = playOnce(game, b.params || {}, ctx0);   // validate before charging
+      const ctx0 = { server: u.fair.server, client: u.fair.client, nonce: u.fair.nonce }; const out = playOnce(game, b.params || {}, ctx0);
       const ctx = beginRound(u); doBet(u, game, amt); const pay = amt * out.mult; if (pay > 0) doPay(u, game, pay, amt); save();
       send(res, 200, { pay: r2(pay), mult: out.mult, result: out.result, balance: r2(u.balance), reveal: revealOf(ctx), fair: fairPub(u) });
     } catch (e) { if (typeof e === 'string') return send(res, 400, { error: e }); throw e; }
@@ -277,7 +276,7 @@ const routes = {
     try {
       if (!INTERACTIVE.includes(game)) throw 'Unknown game.'; if (u.session) abandon(u);
       const amt = num(cents(Number(b.bet)), MIN_BET, MAX_BET); if (amt === null) throw `Bet must be between $${MIN_BET} and $${MAX_BET}.`; if (amt > u.balance + 1e-9) throw 'Insufficient balance.';
-      const ctx0 = { server: u.fair.server, client: u.fair.client, nonce: u.fair.nonce }; startSession(u, game, amt, b.params || {}, ctx0);   // validate params
+      const ctx0 = { server: u.fair.server, client: u.fair.client, nonce: u.fair.nonce }; startSession(u, game, amt, b.params || {}, ctx0);
       const ctx = beginRound(u), { S, pub } = startSession(u, game, amt, b.params || {}, ctx); doBet(u, game, amt); u.session = S; save();
       if (game === 'blackjack') { const n = bjNatural(u, S); if (n) return send(res, 200, n); }
       send(res, 200, { done: false, state: pub, balance: r2(u.balance), fair: fairPub(u) });
@@ -296,43 +295,43 @@ const routes = {
     if (amt > a.u.balance + 1e-9) return send(res, 400, { error: 'Insufficient balance.' });
     const tt = (tipTimes[a.k] = (tipTimes[a.k] || []).filter(x => Date.now() - x < 60000)); if (tt.length >= 10) return send(res, 429, { error: 'Slow down — max 10 tips per minute.' }); tt.push(Date.now());
     const r = db.users[to], now = Date.now(); a.u.balance -= amt; r.balance += amt;
-    a.u.tips.push({ dir: 'out', who: r.name, amt, t: now }); r.tips.push({ dir: 'in', who: a.u.name, amt, t: now }); r.notes.push(`💸 ${a.u.name} tipped you $${amt.toFixed(2)}${note ? ' — ' + note : ''}`); save();
+    a.u.tips.push({ dir: 'out', who: r.name, amt, t: now }); r.tips.push({ dir: 'in', who: a.u.name, amt, t: now }); r.notes.push(`💸 ${a.u.name} tipped you $${amt.toFixed(2)}${note ? ' — ' + note : ''}`);
     send(res, 200, { balance: r2(a.u.balance), me: publicMe(a.u), message: `Sent $${amt.toFixed(2)} to ${r.name}!` });
   },
   'POST /api/promo': async (req, res, b) => {
     const a = needUser(req, res); if (!a) return; const code = String(b.code || '').toUpperCase().replace(/\s+/g, ''), c = db.codes.find(x => x.code === code);
     if (!c) return send(res, 400, { error: 'Invalid promo code.' }); if (a.u.promos.some(p => p.h === code)) return send(res, 400, { error: 'You already redeemed this code.' });
     if ((db.uses[code] || 0) >= c.maxUses) return send(res, 400, { error: 'This code has reached its usage limit.' });
-    db.uses[code] = (db.uses[code] || 0) + 1; a.u.balance += c.amount; a.u.promos.push({ h: code, amt: c.amount, t: Date.now() }); save(); send(res, 200, { amount: c.amount, balance: r2(a.u.balance), me: publicMe(a.u) });
+    db.uses[code] = (db.uses[code] || 0) + 1; a.u.balance += c.amount; a.u.promos.push({ h: code, amt: c.amount, t: Date.now() }); save(); send(res, 200, { amount: c.amount, balance: r2(a.u.balance), message: `Promo code ${code} applied.` });
   },
-  'POST /api/deposit/request': async (req, res, b) => {   // manual deposit: the player says they paid; a moderator confirms and credits it
+  'POST /api/deposit/request': async (req, res, b) => {
     const a = needUser(req, res); if (!a) return; const amt = num(cents(Number(b.amount)), MIN_DEPOSIT, 100000), note = String(b.note || '').slice(0, 120).replace(/[<>&"]/g, '');
-    if (amt === null) return send(res, 400, { error: `Minimum deposit is $${MIN_DEPOSIT}.` }); if (db.deposits.filter(d => d.user === a.k && d.status === 'pending').length >= 3) return send(res, 400, { error: 'You already have 3 pending deposit requests.' });
-    db.deposits.push({ id: rhex(5), user: a.k, name: a.u.name, amount: amt, method: 'manual', note, status: 'pending', created: Date.now() }); save(); send(res, 200, { message: 'Deposit request sent. A moderator will credit it after checking your payment.', me: publicMe(a.u) });
+    if (amt === null) return send(res, 400, { error: `Minimum deposit is $${MIN_DEPOSIT}.` }); if (db.deposits.filter(d => d.user === a.k && d.status === 'pending').length >= 3) return send(res, 400, { error: 'You already have 3 pending deposits.' });
+    db.deposits.push({ id: rhex(5), user: a.k, name: a.u.name, amount: amt, method: 'manual', note, status: 'pending', created: Date.now() }); save(); send(res, 200, { message: 'Deposit request sent. A moderator will review it.' });
   },
-  'POST /api/deposit/create': async (req, res, b) => {   // automatic deposit via NOWPayments (crypto) — credited by the webhook below
+  'POST /api/deposit/create': async (req, res, b) => {
     const a = needUser(req, res); if (!a) return; if (!(NP_KEY && NP_SECRET && PUBLIC_URL)) return send(res, 400, { error: 'Automatic deposits are not set up on this server. Use a deposit request instead.' });
     const amt = num(cents(Number(b.amount)), MIN_DEPOSIT, 100000); if (amt === null) return send(res, 400, { error: `Minimum deposit is $${MIN_DEPOSIT}.` });
     const dep = { id: rhex(8), user: a.k, name: a.u.name, amount: amt, method: 'auto', note: '', status: 'pending', created: Date.now() };
     try {
-      const r = await fetch('https://api.nowpayments.io/v1/invoice', { method: 'POST', headers: { 'x-api-key': NP_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ price_amount: amt, price_currency: 'usd', order_id: dep.id, order_description: 'Stiku deposit', ipn_callback_url: PUBLIC_URL + '/api/deposit/webhook', success_url: PUBLIC_URL + '/', cancel_url: PUBLIC_URL + '/' }) });
+      const r = await fetch('https://api.nowpayments.io/v1/invoice', { method: 'POST', headers: { 'x-api-key': NP_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ price_amount: amt, price_currency: 'USD', pay_currency: 'btc', order_id: dep.id, ipn_callback_url: PUBLIC_URL + '/api/deposit/webhook' }) });
       const j = await r.json(); if (!r.ok || !j.invoice_url) return send(res, 502, { error: 'Payment provider error: ' + (j.message || r.status) });
       db.deposits.push(dep); save(); send(res, 200, { url: j.invoice_url, id: dep.id });
     } catch (e) { send(res, 502, { error: 'Could not reach the payment provider.' }); }
   },
-  'POST /api/deposit/webhook': async (req, res, b) => {  // called by NOWPayments; the signature proves it is genuine
+  'POST /api/deposit/webhook': async (req, res, b) => {
     if (!NP_SECRET) return send(res, 400, { error: 'off' });
     const sig = String(req.headers['x-nowpayments-sig'] || ''), mine = crypto.createHmac('sha512', NP_SECRET).update(JSON.stringify(sortStr(b))).digest('hex');
     if (sig.length !== mine.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(mine))) return send(res, 401, { error: 'bad signature' });
     const d = db.deposits.find(x => x.id === String(b.order_id) && x.method === 'auto');
-    if (d && d.status === 'pending' && b.payment_status === 'finished') { const u = db.users[d.user]; if (u) { u.balance += d.amount; u.notes.push(`💰 Deposit of $${d.amount.toFixed(2)} confirmed`); } d.status = 'paid'; d.paidAt = Date.now(); save(); }
+    if (d && d.status === 'pending' && b.payment_status === 'finished') { const u = db.users[d.user]; if (u) { u.balance += d.amount; u.notes.push(`💰 Deposit of $${d.amount.toFixed(2)} confirmed`); } d.status = 'paid'; save(); }
     else if (d && d.status === 'pending' && ['failed', 'expired', 'refunded'].includes(b.payment_status)) { d.status = 'rejected'; save(); }
     send(res, 200, { ok: true });
   },
   'POST /api/withdraw': async (req, res, b) => {
     const a = needUser(req, res); if (!a) return; if (a.u.session) return send(res, 400, { error: 'Finish your current round first.' });
     const amt = num(cents(Number(b.amount)), MIN_WITHDRAW, 1e6), dest = String(b.dest || '').trim().slice(0, 150).replace(/[<>&"]/g, '');
-    if (amt === null) return send(res, 400, { error: `Minimum withdrawal is $${MIN_WITHDRAW}.` }); if (dest.length < 3) return send(res, 400, { error: 'Enter where to send the money (crypto address, Discord handle…).' });
+    if (amt === null) return send(res, 400, { error: `Minimum withdrawal is $${MIN_WITHDRAW}.` }); if (dest.length < 3) return send(res, 400, { error: 'Enter where to send the money (crypto address, bank details, etc).' });
     if (amt > a.u.balance + 1e-9) return send(res, 400, { error: 'Insufficient balance.' });
     if (db.withdrawals.filter(w => w.user === a.k && w.status === 'pending').length >= 3) return send(res, 400, { error: 'You already have 3 pending withdrawals.' });
     a.u.balance -= amt; db.withdrawals.push({ id: rhex(5), user: a.k, name: a.u.name, amount: amt, dest, status: 'pending', created: Date.now() }); save();
@@ -358,31 +357,30 @@ const routes = {
   },
   'POST /api/mod/deposit-approve': async (req, res, b) => {
     if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const d = db.deposits.find(x => x.id === b.id); if (!d || d.status !== 'pending') return send(res, 400, { error: 'Request not found or already handled.' });
-    const u = db.users[d.user]; if (!u) return send(res, 400, { error: 'Account missing.' }); u.balance += d.amount; u.deposits.push({ amt: d.amount, t: Date.now() }); u.notes.push(`💰 Deposit of $${d.amount.toFixed(2)} confirmed`); d.status = 'paid'; d.paidAt = Date.now(); save();
-    send(res, 200, { message: `Credited $${d.amount.toFixed(2)} to ${d.name}.` });
+    const u = db.users[d.user]; if (!u) return send(res, 400, { error: 'Account missing.' }); u.balance += d.amount; u.deposits.push({ amt: d.amount, t: Date.now() }); u.notes.push(`💰 Deposit of $${d.amount.toFixed(2)} approved`); d.status = 'paid'; save(); send(res, 200, { message: `Credited $${d.amount.toFixed(2)} to ${d.name}.` });
   },
-  'POST /api/mod/deposit-reject': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const d = db.deposits.find(x => x.id === b.id); if (!d || d.status !== 'pending') return send(res, 400, { error: 'Request not found or already handled.' }); d.status = 'rejected'; save(); send(res, 200, { message: 'Deposit request rejected.' }); },
+  'POST /api/mod/deposit-reject': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const d = db.deposits.find(x => x.id === b.id); if (!d || d.status !== 'pending') return send(res, 400, { error: 'Request not found or already handled.' }); d.status = 'rejected'; save(); send(res, 200, { ok: true }); },
   'POST /api/mod/withdraw-paid': async (req, res, b) => {
     if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const w = db.withdrawals.find(x => x.id === b.id); if (!w || w.status !== 'pending') return send(res, 400, { error: 'Request not found or already handled.' });
-    w.status = 'paid'; w.paidAt = Date.now(); w.txid = String(b.txid || '').slice(0, 100).replace(/[<>&"]/g, ''); const u = db.users[w.user]; if (u) u.notes.push(`✅ Your withdrawal of $${w.amount.toFixed(2)} was paid`); save(); send(res, 200, { message: `Marked $${w.amount.toFixed(2)} to ${w.name} as paid.` });
+    w.status = 'paid'; w.paidAt = Date.now(); w.txid = String(b.txid || '').slice(0, 100).replace(/[<>&"]/g, ''); const u = db.users[w.user]; if (u) u.notes.push(`✅ Your withdrawal of $${w.amount.toFixed(2)} was paid`); save(); send(res, 200, { ok: true });
   },
   'POST /api/mod/withdraw-reject': async (req, res, b) => {
     if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const w = db.withdrawals.find(x => x.id === b.id); if (!w || w.status !== 'pending') return send(res, 400, { error: 'Request not found or already handled.' });
-    w.status = 'rejected'; const u = db.users[w.user]; if (u) { u.balance += w.amount; u.notes.push(`↩️ Your withdrawal of $${w.amount.toFixed(2)} was rejected and refunded`); } save(); send(res, 200, { message: 'Rejected and refunded to the player.' });
+    w.status = 'rejected'; const u = db.users[w.user]; if (u) { u.balance += w.amount; u.notes.push(`↩️ Your withdrawal of $${w.amount.toFixed(2)} was rejected and refunded`); } save(); send(res, 200, { ok: true });
   },
   'POST /api/mod/promo': async (req, res, b) => {
-    if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const code = String(b.code || '').trim().toUpperCase(), amt = num(cents(Number(b.amount)), 0.01, 100000), max = Math.floor(Number(b.max));
-    if (!/^[A-Z0-9_-]{3,20}$/.test(code)) return send(res, 400, { error: 'Code: 3-20 letters, numbers, - or _.' }); if (amt === null) return send(res, 400, { error: 'Enter a valid amount.' }); if (!(max >= 1)) return send(res, 400, { error: 'Max uses must be at least 1.' });
-    if (db.codes.some(c => c.code === code)) return send(res, 400, { error: 'That code already exists.' }); db.codes.push({ code, amount: amt, maxUses: max, created: Date.now() }); save(); send(res, 200, { message: `Created ${code} ($${amt.toFixed(2)}, ${max} use${max > 1 ? 's' : ''}).` });
+    if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const code = String(b.code || '').trim().toUpperCase(), amt = num(cents(Number(b.amount)), 0.01, 100000), max = Math.floor(Number(b.maxUses) || 1), u = db.users[k];
+    if (!/^[A-Z0-9_-]{3,20}$/.test(code)) return send(res, 400, { error: 'Code: 3-20 letters, numbers, - or _.' }); if (amt === null) return send(res, 400, { error: 'Enter a valid amount.' }); if (!(max >= 1 && max <= 1000000)) return send(res, 400, { error: 'Max uses must be 1-1,000,000.' });
+    if (db.codes.some(c => c.code === code)) return send(res, 400, { error: 'That code already exists.' }); db.codes.push({ code, amount: amt, maxUses: max, created: Date.now() }); save(); send(res, 200, { message: `Promo code ${code} created.` });
   },
-  'POST /api/mod/promo-delete': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); db.codes = db.codes.filter(c => c.code !== b.code); save(); send(res, 200, { message: 'Deleted.' }); },
-  'POST /api/mod/reset-stats': async (req, res) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); Object.values(db.users).forEach(u => { u.stats = blank(); }); save(); send(res, 200, { message: 'All stats were reset. Balances were not changed.' }); }
+  'POST /api/mod/promo-delete': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); db.codes = db.codes.filter(c => c.code !== b.code); save(); send(res, 200, { ok: true }); },
+  'POST /api/mod/reset-stats': async (req, res) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); Object.values(db.users).forEach(u => { u.stats = blank(); }); save(); send(res, 200, { ok: true }); }
 };
 initDB().then(() => {
   http.createServer(async (req, res) => {
     try {
       const url = req.url.split('?')[0];
-      if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'casino.html'))); }
+      if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'casino.html'), 'utf8')); }
       if (url === '/api/ping') return send(res, 200, { ok: true, v: 2 });
       if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
       const h = routes[req.method + ' ' + url]; if (!h) return send(res, 404, { error: 'Not found' });
