@@ -378,14 +378,18 @@ const routes = {
   'POST /api/mod/promo-delete': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); db.codes = db.codes.filter(c => c.code !== b.code); save(); send(res, 200, { message: 'Deleted.' }); },
   'POST /api/mod/reset-stats': async (req, res) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); Object.values(db.users).forEach(u => { u.stats = blank(); }); save(); send(res, 200, { message: 'All stats were reset. Balances were not changed.' }); }
 };
-
-http.createServer(async (req, res) => {
-  try {
-    const url = req.url.split('?')[0];
-    if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'casino.html'))); }
-    if (url === '/api/ping') return send(res, 200, { ok: true, v: 2 });
-    if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
-    const h = routes[req.method + ' ' + url]; if (!h) return send(res, 404, { error: 'Not found' });
-    await h(req, res, req.method === 'POST' ? await readBody(req) : {});
-  } catch (e) { console.error(e); if (!res.headersSent) send(res, 500, { error: 'Server error' }); }
-}).listen(PORT, '0.0.0.0', () => console.log('Stiku Casino running on port ' + PORT + ' — data file: ' + DATA));
+initDB().then(() => {
+  http.createServer(async (req, res) => {
+    try {
+      const url = req.url.split('?')[0];
+      if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'casino.html'))); }
+      if (url === '/api/ping') return send(res, 200, { ok: true, v: 2 });
+      if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
+      const h = routes[req.method + ' ' + url]; if (!h) return send(res, 404, { error: 'Not found' });
+      await h(req, res, req.method === 'POST' ? await readBody(req) : {});
+    } catch (e) { console.error(e); if (!res.headersSent) send(res, 500, { error: 'Server error' }); }
+  }).listen(PORT, '0.0.0.0', () => console.log('Stiku Casino running on port ' + PORT));
+}).catch(err => {
+  console.error('Failed to connect to MongoDB:', err);
+  process.exit(1);
+});
