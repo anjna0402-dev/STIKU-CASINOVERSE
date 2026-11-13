@@ -1,52 +1,73 @@
+// Stiku Casino server — zero dependencies. Run:  node server.js   (then open http://localhost:3000)
+// The server rolls every game with its own secret seed and pays out itself; the browser only displays results.
+// Env: PORT, MOD_HASH, MAX_BET (default 1000), MIN_WITHDRAW (default 2), MIN_DEPOSIT (default 0.3),
+//      DATA_DIR (folder for data.json), NOWPAYMENTS_API_KEY + NOWPAYMENTS_IPN_SECRET + PUBLIC_URL (optional automatic crypto deposits)
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
-const { MongoClient } = require('mongodb');
-
 const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI;
+// Local-file fallback location (only used when MONGO_URI is not set).
+const DATA_DIR = process.env.DATA_DIR || __dirname; try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
+const DATA = path.join(DATA_DIR, 'data.json');
+// Moderator key: set MOD_KEY in your environment (Render > Environment). The fallback below only exists so the site works on the first deploy — change it.
 const MOD_KEY = process.env.MOD_KEY || 'Choudhary@11';
-if (!process.env.MOD_KEY) console.warn('WARNING: MOD_KEY is not set — using the default moderator key.');
+if (!process.env.MOD_KEY) console.warn('WARNING: MOD_KEY is not set — using the default moderator key. Set MOD_KEY in your environment variables.');
 const MOD_HASH = crypto.createHash('sha256').update('stiku-mod:' + MOD_KEY).digest('hex');
-const modTokens = {}, modFails = {};
+const modTokens = {}, modFails = {};   // moderator sessions: random token -> expiry time (the key itself never leaves the server)
 const MAX_BET = +process.env.MAX_BET || 1000, MIN_BET = 0.01, MIN_WITHDRAW = +process.env.MIN_WITHDRAW || 2, MIN_DEPOSIT = +process.env.MIN_DEPOSIT || 0.3;
 const NP_KEY = process.env.NOWPAYMENTS_API_KEY || '', NP_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || '', PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
-let db = { users: {}, tokens: {}, codes: [], uses: {}, deposits: [], withdrawals: [] };
-let mongoCollection = null;
-
-async function initDB() {
-  if (!MONGO_URI) {
-    console.error('ERROR: MONGO_URI environment variable is missing!');
-    process.exit(1);
-  }
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
-  mongoCollection = client.db('stikucasino').collection('state');
-  const saved = await mongoCollection.findOne({ _id: 'main_state' });
-  if (saved) {
-    delete saved._id;
-    db = Object.assign(db, saved);
-    console.log('Loaded database state from MongoDB Atlas!');
-  } else {
-    await mongoCollection.insertOne(Object.assign({ _id: 'main_state' }, db));
-    console.log('Initialized new database state in MongoDB Atlas.');
+// ---------------- storage: MongoDB Atlas (set MONGO_URI) or a local file (only for testing on your own computer) ----------------
+const MONGO_URI = process.env.MONGO_URI || '', MONGO_DB = process.env.MONGO_DB || 'stikucasino', RETRY_MS = +process.env.DB_RETRY_MS || 20000;
+const blankDb = () => ({ users: {}, tokens: {}, codes: [], uses: {}, deposits: [], withdrawals: [] });
+let db = blankDb(), ready = false, lastDbError = '', col = null, myRev = null, dirty = false, flushing = false;
+const save = () => { dirty = true; };
+const strip = d => { const o = Object.assign({}, d); delete o._id; delete o.rev; return o; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function connectMongo() {
+  let MongoClient; try { ({ MongoClient } = require('mongodb')); } catch (e) { throw new Error('The "mongodb" package is not installed. Add  "mongodb": "^6.9.0"  under "dependencies" in package.json, commit it, and redeploy.'); }
+  const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 15000, connectTimeoutMS: 15000 });
+  await client.connect(); col = client.db(MONGO_DB).collection('state');
+  const saved = await col.findOne({ _id: 'main_state' });
+  if (saved) { db = Object.assign(blankDb(), strip(saved)); myRev = typeof saved.rev === 'number' ? saved.rev : null; console.log('Loaded saved data from MongoDB (' + Object.keys(db.users).length + ' accounts).'); }
+  else { await col.insertOne(Object.assign({ _id: 'main_state', rev: 0 }, db)); myRev = 0; console.log('Created a new database document in MongoDB.'); }
+}
+function loadFile() { try { db = Object.assign(blankDb(), JSON.parse(fs.readFileSync(DATA, 'utf8'))); console.log('Loaded data from', DATA); } catch (e) {} }
+async function initStorage() {
+  if (!MONGO_URI) { console.warn('WARNING: MONGO_URI is not set — saving to a local file. On Render that file is erased at every restart; set MONGO_URI.'); loadFile(); ready = true; return; }
+  for (let attempt = 1; !ready; attempt++) {   // keeps retrying, so fixing Atlas settings works without a redeploy
+    try { await connectMongo(); ready = true; lastDbError = ''; }
+    catch (e) {
+      lastDbError = (e && e.message) || String(e);
+      console.error(`MongoDB connection failed (attempt ${attempt}): ${lastDbError}\n  Checklist: 1) Atlas > Network Access: allow 0.0.0.0/0   2) MONGO_URI is exactly right and the password is URL-encoded (@ becomes %40)   3) the database user can read/write   4) the cluster is not paused`);
+      await sleep(RETRY_MS);
+    }
   }
 }
-
-let dirty = false;
-const save = () => { dirty = true; };
-setInterval(async () => {
-  if (!dirty || !mongoCollection) return;
-  dirty = false;
+async function flush() {
+  if (!ready || !dirty || flushing) return; dirty = false; flushing = true;
   try {
-    await mongoCollection.updateOne({ _id: 'main_state' }, { $set: db }, { upsert: true });
-  } catch (e) { console.error('MongoDB save failed', e.message); }
-}, 2000);
+    if (!MONGO_URI) { fs.writeFileSync(DATA + '.tmp', JSON.stringify(db)); fs.renameSync(DATA + '.tmp', DATA); return; }
+    const doc = Object.assign({ _id: 'main_state' }, db, { rev: (myRev === null ? 0 : myRev) + 1 });
+    const r = await col.replaceOne(myRev === null ? { _id: 'main_state', rev: { $exists: false } } : { _id: 'main_state', rev: myRev }, doc);
+    if (r.matchedCount === 0) {   // another server instance saved newer data (happens briefly while Render redeploys): keep ITS data instead of overwriting it
+      const cur = await col.findOne({ _id: 'main_state' }); if (cur) { db = Object.assign(blankDb(), strip(cur)); myRev = typeof cur.rev === 'number' ? cur.rev : null; }
+      console.warn('Another instance saved newer data — reloaded it instead of overwriting.');
+    } else myRev = doc.rev;
+  } catch (e) { dirty = true; console.error('save failed:', e.message); } finally { flushing = false; }
+}
+setInterval(flush, MONGO_URI ? 2000 : 1000);
+const shutdown = async () => {   // Render sends SIGTERM on every restart/deploy: save everything first
+  for (let i = 0; i < 50 && flushing; i++) await sleep(100);
+  dirty = true; try { await Promise.race([flush(), sleep(5000)]); } catch (e) {} process.exit(0);
+};
+process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
+
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
 const rhex = n => crypto.randomBytes(n).toString('hex');
 const blank = () => ({ wagered: 0, bets: 0, wins: 0, payout: 0, biggest: { amt: 0, mult: 0, game: '' }, games: {}, daily: {}, curve: [0], hidden: false });
 const day = (o = 0) => new Date(Date.now() - o * 864e5).toISOString().slice(0, 10);
 const r2 = x => Math.round(x * 1e6) / 1e6, cents = x => Math.round(x * 100) / 100;
 const lastSeen = {}, fails = {}, tipTimes = {};
+function issueToken(k) { const t = rhex(24); db.tokens[t] = k; const mine = Object.keys(db.tokens).filter(x => db.tokens[x] === k); while (mine.length > 5) delete db.tokens[mine.shift()]; return t; }   // 5 sessions per player keeps the saved data small
 
 // ---------------- accounts / stats ----------------
 function hashPw(pw, salt) { return crypto.scryptSync(pw, Buffer.from(salt, 'hex'), 32).toString('hex'); }
@@ -234,14 +255,14 @@ const routes = {
     if (pw.length < 6 || pw.length > 100) return send(res, 400, { error: 'Password must be at least 6 characters.' });
     if (db.users[k]) return send(res, 400, { error: 'That username is taken.' });
     const salt = rhex(16); db.users[k] = { name, salt, hash: hashPw(pw, salt), balance: 0, created: Date.now(), stats: blank(), tips: [], deposits: [], promos: [], notes: [], session: null };
-    ensureFair(db.users[k]); const t = rhex(24); db.tokens[t] = k; lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(db.users[k]) });
+    ensureFair(db.users[k]); const t = issueToken(k); lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(db.users[k]) });
   },
   'POST /api/login': async (req, res, b) => {
     const k = String(b.name || '').trim().toLowerCase(), ip = req.socket.remoteAddress, f = fails[ip] || { n: 0, t: Date.now() };
     if (Date.now() - f.t > 300000) { f.n = 0; f.t = Date.now(); } if (f.n >= 10) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
     const u = db.users[k];
     if (!u || !crypto.timingSafeEqual(Buffer.from(hashPw(String(b.pw || ''), u.salt), 'hex'), Buffer.from(u.hash, 'hex'))) { f.n++; fails[ip] = f; return send(res, 401, { error: 'Wrong username or password.' }); }
-    const t = rhex(24); db.tokens[t] = k; lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(u) });
+    const t = issueToken(k); lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(u) });
   },
   'POST /api/logout': async (req, res) => { const a = authUser(req); if (a) { delete db.tokens[a.t]; delete lastSeen[a.k]; save(); } send(res, 200, { ok: true }); },
   'GET /api/state': async (req, res) => {
@@ -378,18 +399,17 @@ const routes = {
   'POST /api/mod/promo-delete': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); db.codes = db.codes.filter(c => c.code !== b.code); save(); send(res, 200, { message: 'Deleted.' }); },
   'POST /api/mod/reset-stats': async (req, res) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); Object.values(db.users).forEach(u => { u.stats = blank(); }); save(); send(res, 200, { message: 'All stats were reset. Balances were not changed.' }); }
 };
-initDB().then(() => {
-  http.createServer(async (req, res) => {
-    try {
-      const url = req.url.split('?')[0];
-      if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'casino.html'))); }
-      if (url === '/api/ping') return send(res, 200, { ok: true, v: 2 });
-      if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end('ok'); }
-      const h = routes[req.method + ' ' + url]; if (!h) return send(res, 404, { error: 'Not found' });
-      await h(req, res, req.method === 'POST' ? await readBody(req) : {});
-    } catch (e) { console.error(e); if (!res.headersSent) send(res, 500, { error: 'Server error' }); }
-  }).listen(PORT, '0.0.0.0', () => console.log('Stiku Casino running on port ' + PORT));
-}).catch(err => {
-  console.error('Failed to connect to MongoDB:', err);
-  process.exit(1);
+
+const waitingPage = () => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#0f212e;color:#e5e7eb;max-width:560px;margin:40px auto;padding:0 16px"><h2>🎰 Stiku Casino is starting…</h2><p>The server is up but the database is not connected yet. This page refreshes by itself.</p>${lastDbError ? `<p style="background:#3b1d1d;padding:10px;border-radius:8px;word-break:break-word"><b>Database error:</b> ${String(lastDbError).replace(/[<>&]/g, '')}</p><p style="color:#9ca3af">Owner checklist: Atlas → Network Access → allow <b>0.0.0.0/0</b>; check the <b>MONGO_URI</b> value in Render (password URL-encoded); database user has read/write; cluster not paused. Details are in the Render logs.</p>` : ''}<script>setTimeout(()=>location.reload(),5000)</script>`;
+const server = http.createServer(async (req, res) => {
+  try {
+    const url = req.url.split('?')[0];
+    if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end(ready ? 'ok' : 'starting'); }
+    if (!ready) { if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(waitingPage()); } return send(res, 503, { error: 'The database is not connected yet. Try again in a moment.' }); }
+    if (req.method === 'GET' && (url === '/' || url === '/casino.html')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(fs.readFileSync(path.join(__dirname, 'casino.html'))); }
+    if (url === '/api/ping') return send(res, 200, { ok: true, v: 2 });
+    const h = routes[req.method + ' ' + url]; if (!h) return send(res, 404, { error: 'Not found' });
+    await h(req, res, req.method === 'POST' ? await readBody(req) : {});
+  } catch (e) { console.error(e); if (!res.headersSent) send(res, 500, { error: 'Server error' }); }
 });
+server.listen(PORT, '0.0.0.0', () => { console.log('Stiku Casino listening on port ' + PORT + ' — storage: ' + (MONGO_URI ? 'MongoDB Atlas' : 'local file ' + DATA)); initStorage(); });
