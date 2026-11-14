@@ -97,7 +97,7 @@ function beginRound(u) { ensureFair(u); const ctx = { server: u.fair.server, cli
 const revealOf = ctx => ({ server: ctx.server, hash: sha(ctx.server), client: ctx.client, nonce: ctx.nonce });
 
 // ---------------- game math (identical to what the page shows) ----------------
-const RTP = { dice: .96, flip: .96, limbo: .7999, plinko: .7999, crash: .75, wheel: .75, keno: .75, towers: .75, special: .75, rps: .75, roulette: .75, hilo: .75, diamonds: .75, mines: .96 };
+const RTP = { dice: .96, flip: .96, limbo: .7999, plinko: .7999, crash: .75, wheel: .75, keno: .75, towers: .75, special: .75, rps: .75, roulette: .75, hilo: .75, diamonds: .75, mines: .96, andar: .75, dragon: .75, baccarat: .75, sicbo: .75, scratch: .75 };
 const PB = [1, 10, 45, 120, 210, 252, 210, 120, 45, 10, 1], RAW = [26, 9, 4, 1.4, .7, .4, .7, 1.4, 4, 9, 26];
 const PS = .7999 / RAW.reduce((a, r, i) => a + r * PB[i] / 1024, 0), PM = RAW.map(r => r * PS);
 const WHEEL = [0, 1, 0, 2, 0, .5, 0, 4, 0, 1, 0, 2, 0, .5, 0, 1, 0, 2, 0, 1];
@@ -130,6 +130,39 @@ const survive = (m, k) => { let p = 1; for (let i = 0; i < k; i++) p *= (25 - m 
 const minesMult = (m, k) => k === 0 ? 1 : (1 / survive(m, k)) * 0.96;
 const twMult = k => .75 * Math.pow(1.5, k);
 
+// ---- card / dice games (infinite deck, so every probability below is exact and every bet returns exactly 75% on average) ----
+function* fgen(ctx) { for (let i = 0; i < 4000; i++) { const b = blk(ctx, i); for (let o = 0; o < 32; o += 4) yield fAt(b, o); } }   // endless stream of fair floats
+const rk = f => Math.floor(f * 13) + 1;                       // card rank 1 (Ace) .. 13 (King)
+const ANDAR_P = 13 / 25, BAHAR_P = 12 / 25;                   // first card goes to Andar, then alternate: P(Andar) = (1/13) / (1 - (12/13)^2)
+const bacVal = r => r >= 10 ? 0 : r;
+function bacPlay(next) {                                     // next() gives a card VALUE 0-9; standard punto banco third-card rules
+  const P = [next()], B = [next()]; P.push(next()); B.push(next());
+  const tot = a => a.reduce((x, y) => x + y, 0) % 10; let pt = tot(P), bt = tot(B), p3 = null;
+  if (pt < 8 && bt < 8) {
+    if (pt <= 5) { p3 = next(); P.push(p3); pt = tot(P); }
+    if (p3 === null) { if (bt <= 5) B.push(next()); }
+    else if (bt <= 2 || (bt === 3 && p3 !== 8) || (bt === 4 && p3 >= 2 && p3 <= 7) || (bt === 5 && p3 >= 4 && p3 <= 7) || (bt === 6 && (p3 === 6 || p3 === 7))) B.push(next());
+    bt = tot(B);
+  }
+  return { P, B, pt, bt, winner: pt > bt ? 'player' : bt > pt ? 'banker' : 'tie' };
+}
+const BAC_P = (() => {                                       // exact outcome probabilities by walking every possible card sequence
+  const pv = [4 / 13, 1 / 13, 1 / 13, 1 / 13, 1 / 13, 1 / 13, 1 / 13, 1 / 13, 1 / 13, 1 / 13], out = { player: 0, banker: 0, tie: 0 }; class Need extends Error {}
+  (function explore(prefix, prob) {
+    let i = 0, res; try { res = bacPlay(() => { if (i < prefix.length) return prefix[i++]; throw new Need(); }); } catch (e) { if (!(e instanceof Need)) throw e; for (let v = 0; v <= 9; v++) explore(prefix.concat(v), prob * pv[v]); return; }
+    out[res.winner] += prob;
+  })([], 1); return out;
+})();
+const BAC_M = { player: (.75 - BAC_P.tie) / BAC_P.player, banker: (.75 - BAC_P.tie) / BAC_P.banker, tie: .75 / BAC_P.tie };   // a tie returns the stake on Player / Banker bets
+const SIC = (() => {
+  const cnt = {}; let nBig = 0, nSmall = 0, nTrip = 0;
+  for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) for (let c = 1; c <= 6; c++) { const t = a + b + c; cnt[t] = (cnt[t] || 0) + 1; if (a === b && b === c) nTrip++; else if (t >= 11) nBig++; else nSmall++; }
+  const total = {}; for (let t = 4; t <= 17; t++) total[t] = .75 * 216 / cnt[t];
+  return { big: .75 * 216 / nBig, small: .75 * 216 / nSmall, triple: .75 * 216 / nTrip, total };
+})();
+const SCR = [...Array(64).fill(0), ...Array(17).fill(1), ...Array(14).fill(2), ...Array(4).fill(5), 10];   // 100 equal outcomes, mean = 75/100
+const SCR_SYM = ['🍋', '🍒', '🔔', '💎', '⭐', '🍇', '🍀'], SCR_PRIZE = { 1: '🍋', 2: '🍒', 5: '🔔', 10: '💎' };
+
 // single-shot games: return { mult (total return per unit bet), result }
 function playOnce(game, p, ctx) {
   const b0 = blk(ctx, 0), f = fAt(b0, 0);
@@ -151,6 +184,37 @@ function playOnce(game, p, ctx) {
       const n = Math.floor(f * 37), t = p.rb; if (!RCOUNT[t]) throw 'Bad roulette bet.'; const rn = Math.floor(+p.rn);
       const win = t === 'red' ? RED.includes(n) : t === 'black' ? n > 0 && !RED.includes(n) : t === 'even' ? n > 0 && n % 2 === 0 : t === 'odd' ? n % 2 === 1 : t === 'low' ? n >= 1 && n <= 18 : t === 'high' ? n >= 19 : t === 'd1' ? n >= 1 && n <= 12 : t === 'd2' ? n >= 13 && n <= 24 : t === 'd3' ? n >= 25 : n === rn;
       if (t === 'n' && !(rn >= 0 && rn <= 36)) throw 'Number must be 0-36.'; return { mult: win ? .75 * 37 / RCOUNT[t] : 0, result: { n } };
+    }
+    case 'andar': {
+      if (!['andar', 'bahar'].includes(p.pick)) throw 'Pick Andar or Bahar.';
+      const g = fgen(ctx), joker = rk(g.next().value), cards = []; let winner = 'andar';
+      for (let n = 1; n <= 3000; n++) { const c = rk(g.next().value); cards.push(c); if (c === joker) { winner = n % 2 === 1 ? 'andar' : 'bahar'; break; } }
+      return { mult: winner === p.pick ? .75 / (p.pick === 'andar' ? ANDAR_P : BAHAR_P) : 0, result: { joker, cards, winner } };
+    }
+    case 'dragon': {
+      if (!['dragon', 'tiger', 'tie'].includes(p.pick)) throw 'Pick Dragon, Tiger or Tie.';
+      const d = rk(fAt(b0, 0)), t = rk(fAt(b0, 4)), w = d > t ? 'dragon' : t > d ? 'tiger' : 'tie';
+      return { mult: w === p.pick ? (w === 'tie' ? 9.75 : 1.625) : 0, result: { d, t, winner: w } };   // P(Dragon)=P(Tiger)=6/13, P(Tie)=1/13
+    }
+    case 'baccarat': {
+      if (!BAC_M[p.pick]) throw 'Pick Player, Banker or Tie.';
+      const g = fgen(ctx), ranks = [], r = bacPlay(() => { const x = rk(g.next().value); ranks.push(x); return bacVal(x); });
+      const PR = [ranks[0], ranks[2]], BR = [ranks[1], ranks[3]]; let ix = 4; if (r.P.length === 3) PR.push(ranks[ix++]); if (r.B.length === 3) BR.push(ranks[ix++]);
+      const mult = r.winner === p.pick ? BAC_M[p.pick] : (r.winner === 'tie' ? 1 : 0);
+      return { mult, result: { P: PR, B: BR, pt: r.pt, bt: r.bt, winner: r.winner } };
+    }
+    case 'sicbo': {
+      const bet = p.bet; if (!['big', 'small', 'triple', 'total'].includes(bet)) throw 'Bad Sic Bo bet.'; const tn = Math.floor(+p.total); if (bet === 'total' && !(tn >= 4 && tn <= 17)) throw 'Total must be 4-17.';
+      const dice = [0, 1, 2].map(i => Math.floor(fAt(b0, i * 4) * 6) + 1), sum = dice[0] + dice[1] + dice[2], trip = dice[0] === dice[1] && dice[1] === dice[2];
+      const win = bet === 'big' ? !trip && sum >= 11 : bet === 'small' ? !trip && sum <= 10 : bet === 'triple' ? trip : sum === tn;
+      return { mult: win ? (bet === 'total' ? SIC.total[tn] : SIC[bet]) : 0, result: { dice, sum, triple: trip } };
+    }
+    case 'scratch': {
+      const g = fgen(ctx), m = SCR[Math.floor(g.next().value * 100)], prize = SCR_PRIZE[m];
+      const shuf = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(g.next().value * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+      const pos = shuf([...Array(9).keys()]), pool = []; SCR_SYM.filter(x => x !== prize).forEach(x => pool.push(x, x)); shuf(pool);   // fillers: at most 2 of each, so no accidental triple
+      const cells = Array(9); let pi = 0; if (m > 0) for (let i = 0; i < 3; i++) cells[pos[i]] = prize; for (let i = m > 0 ? 3 : 0; i < 9; i++) cells[pos[i]] = pool[pi++];
+      return { mult: m, result: { cells, prize: m > 0 ? pos.slice(0, 3) : [] } };
     }
     case 'diamonds': { const a = []; for (let i = 0; i < 5; i++) a.push(Math.floor(fAt(b0, i * 4) * 7)); const sg = dSig(a); return { mult: DM(sg), result: { a, sg, label: DCAT[sg][0] } }; }
   }
@@ -270,7 +334,7 @@ const routes = {
     let balloon = null; const B = balloons[a.k];
     if (B && !B.sent) { B.sent = Date.now(); } if (B && B.sent) { if (Date.now() - B.sent > 15000) delete balloons[a.k]; else balloon = { id: B.id, amt: B.amt }; }
     if (!balloons[a.k] && Date.now() - (u.lastBalloon || 0) > 110000 && Math.random() < 0.03) { u.lastBalloon = Date.now(); balloons[a.k] = { id: rhex(6), amt: [0.01, 0.02, 0.03][Math.floor(Math.random() * 3)] }; }
-    send(res, 200, { me: publicMe(u), players: players(), notes, balloon, cfg: { minWithdraw: MIN_WITHDRAW, minDeposit: MIN_DEPOSIT, autoDeposit: !!(NP_KEY && NP_SECRET && PUBLIC_URL), maxBet: MAX_BET } });
+    send(res, 200, { me: publicMe(u), players: players(), notes, balloon, cfg: { bac: BAC_M, sic: SIC, minWithdraw: MIN_WITHDRAW, minDeposit: MIN_DEPOSIT, autoDeposit: !!(NP_KEY && NP_SECRET && PUBLIC_URL), maxBet: MAX_BET } });
   },
   'POST /api/balloon/claim': async (req, res, b) => {
     const a = needUser(req, res); if (!a) return; const B = balloons[a.k];
