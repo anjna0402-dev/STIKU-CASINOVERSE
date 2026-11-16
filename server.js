@@ -15,6 +15,13 @@ const modTokens = {}, modFails = {};   // moderator sessions: random token -> ex
 const MAX_BET = +process.env.MAX_BET || 1000, MIN_BET = 0.01, MIN_WITHDRAW = +process.env.MIN_WITHDRAW || 2, MIN_DEPOSIT = +process.env.MIN_DEPOSIT || 0.3;
 const NP_KEY = process.env.NOWPAYMENTS_API_KEY || '', NP_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || '', PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 
+// ---- anti-abuse and risk settings (all can be changed with environment variables) ----
+const MAX_PER_IP = +process.env.MAX_ACCOUNTS_PER_IP || 2;                    // accounts allowed per network (2 lets a household play)
+const ALT_ACTION = process.env.ALT_ACTION === 'flag' ? 'flag' : 'reset';     // 'reset' = freeze the accounts and zero the balances, 'flag' = freeze only
+const IP_MODE = process.env.IP_MODE === 'last' ? 'last' : 'first';           // which X-Forwarded-For entry is the player's IP
+const MAX_WIN = +process.env.MAX_WIN || 50000;                               // the most one round can ever pay
+const WD_NEED_DEPOSIT = process.env.WD_NEED_DEPOSIT !== '0', WD_TURNOVER = process.env.WD_TURNOVER === undefined ? 1 : +process.env.WD_TURNOVER;   // withdrawals need a deposit + this much wagering (x deposits)
+
 // ---------------- storage: MongoDB Atlas (set MONGO_URI) or a local file (only for testing on your own computer) ----------------
 const MONGO_URI = process.env.MONGO_URI || '', MONGO_DB = process.env.MONGO_DB || 'stikucasino', RETRY_MS = +process.env.DB_RETRY_MS || 20000;
 const blankDb = () => ({ users: {}, tokens: {}, codes: [], uses: {}, deposits: [], withdrawals: [] });
@@ -68,18 +75,27 @@ const day = (o = 0) => new Date(Date.now() - o * 864e5).toISOString().slice(0, 1
 const r2 = x => Math.round(x * 1e6) / 1e6, cents = x => Math.round(x * 100) / 100;
 const lastSeen = {}, fails = {}, tipTimes = {};
 function issueToken(k) { const t = rhex(24); db.tokens[t] = k; const mine = Object.keys(db.tokens).filter(x => db.tokens[x] === k); while (mine.length > 5) delete db.tokens[mine.shift()]; return t; }   // 5 sessions per player keeps the saved data small
+function clientIp(req) { const xs = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); const ip = xs.length ? (IP_MODE === 'last' ? xs[xs.length - 1] : xs[0]) : req.socket.remoteAddress; return String(ip || 'unknown').replace(/^::ffff:/, '').slice(0, 64); }
+const deviceOf = req => String(req.headers['x-device'] || '').replace(/[^a-f0-9]/gi, '').slice(0, 40);
+const totalDeposits = u => (u.deposits || []).reduce((a, d) => a + (Number(d.amt) || 0), 0);
+const lifeWagered = u => Math.max(u.lw || 0, u.stats.wagered);                // lifetime wagering: a moderator's "reset stats" does not touch it
+function noteIp(u, req) { const ip = clientIp(req), dev = deviceOf(req); u.ips = u.ips || []; if (!u.ips.includes(ip)) { u.ips.push(ip); if (u.ips.length > 6) u.ips.shift(); } if (dev && !u.device) u.device = dev; }
+function groupOf(u) { return Object.values(db.users).filter(o => o !== u && ((u.device && o.device === u.device) || (u.ips || []).some(ip => (o.ips || []).includes(ip)))); }   // other accounts on the same device or network
+function flagAccounts(list, reason) { list.forEach(x => { if (x.flag) return; x.flag = { reason, t: Date.now(), reset: ALT_ACTION === 'reset' ? r2(x.balance) : 0 }; if (ALT_ACTION === 'reset') x.balance = 0; x.session = null; }); }
+const frozen = (res, u) => { if (!u.flag) return false; send(res, 403, { error: 'Your account is frozen (rule #1: one account per person).', flagged: true, flag: u.flag }); return true; };
+function userInfo(u) { return { deposited: r2(totalDeposits(u)), wagered: r2(lifeWagered(u)), promos: r2((u.promos || []).reduce((a, p) => a + p.amt, 0)), ips: u.ips || [], group: groupOf(u).map(o => o.name), flagged: !!u.flag }; }
 
 // ---------------- accounts / stats ----------------
 function hashPw(pw, salt) { return crypto.scryptSync(pw, Buffer.from(salt, 'hex'), 32).toString('hex'); }
 function ensureFair(u) { if (!u.fair || !u.fair.server) { u.fair = { server: rhex(32), client: rhex(8), nonce: 0 }; u.fair.hash = sha(u.fair.server); } }
 function fairPub(u) { ensureFair(u); return { hash: u.fair.hash, client: u.fair.client, nonce: u.fair.nonce }; }
-function publicMe(u) { return { name: u.name, balance: r2(u.balance), created: u.created, stats: u.stats, tips: u.tips.slice(-30), promos: u.promos.slice(-30), fair: fairPub(u), session: u.session ? u.session.game : null, deposits: db.deposits.filter(d => d.user === u.name.toLowerCase()).slice(-15), withdrawals: db.withdrawals.filter(w => w.user === u.name.toLowerCase()).slice(-15) }; }
+function publicMe(u) { return { name: u.name, balance: r2(u.balance), created: u.created, stats: u.stats, tips: u.tips.slice(-30), promos: u.promos.slice(-30), dep: r2(totalDeposits(u)), lw: r2(lifeWagered(u)), flag: u.flag || null, fair: fairPub(u), session: u.session ? u.session.game : null, deposits: db.deposits.filter(d => d.user === u.name.toLowerCase()).slice(-15), withdrawals: db.withdrawals.filter(w => w.user === u.name.toLowerCase()).slice(-15) }; }
 function players() {
   return Object.keys(db.users).map(k => { const u = db.users[k], s = u.stats, daily = {}; for (let i = 0; i < 7; i++) if (s.daily[day(i)]) daily[day(i)] = s.daily[day(i)];
     return { name: u.name, created: u.created, online: Date.now() - (lastSeen[k] || 0) < 8000, stats: { wagered: s.wagered, bets: s.bets, wins: s.wins, payout: s.payout, hidden: s.hidden, daily } }; });
 }
 function doBet(u, game, amt) {
-  const st = u.stats; u.balance -= amt; st.wagered += amt; st.bets++; st.daily[day()] = (st.daily[day()] || 0) + amt;
+  const st = u.stats; u.balance -= amt; u.lw = (u.lw || 0) + amt; st.wagered += amt; st.bets++; st.daily[day()] = (st.daily[day()] || 0) + amt;
   const g = st.games[game] = st.games[game] || { wagered: 0, bets: 0, wins: 0, payout: 0 }; g.wagered += amt; g.bets++;
   st.curve.push(st.payout - st.wagered); if (st.curve.length > 61) st.curve.shift();
 }
@@ -97,7 +113,7 @@ function beginRound(u) { ensureFair(u); const ctx = { server: u.fair.server, cli
 const revealOf = ctx => ({ server: ctx.server, hash: sha(ctx.server), client: ctx.client, nonce: ctx.nonce });
 
 // ---------------- game math (identical to what the page shows) ----------------
-const RTP = { dice: .96, flip: .96, limbo: .7999, plinko: .7999, crash: .75, wheel: .75, keno: .75, towers: .75, special: .75, rps: .75, roulette: .75, hilo: .75, diamonds: .75, mines: .96, andar: .75, dragon: .75, baccarat: .75, sicbo: .75, scratch: .75 };
+const RTP = { dice: .96, flip: .96, limbo: .7999, plinko: .7999, wheel: .75, keno: .75, towers: .75, special: .75, rps: .75, roulette: .75, hilo: .75, diamonds: .75, mines: .75, andar: .75, dragon: .75, baccarat: .75, sicbo: .75, scratch: .75 };
 const PB = [1, 10, 45, 120, 210, 252, 210, 120, 45, 10, 1], RAW = [26, 9, 4, 1.4, .7, .4, .7, 1.4, 4, 9, 26];
 const PS = .7999 / RAW.reduce((a, r, i) => a + r * PB[i] / 1024, 0), PM = RAW.map(r => r * PS);
 const WHEEL = [0, 1, 0, 2, 0, .5, 0, 4, 0, 1, 0, 2, 0, .5, 0, 1, 0, 2, 0, 1];
@@ -127,7 +143,7 @@ function spRound(rand) {
 const BJW = 1.476, BJB = BJW + 0.5, cv = r => Math.min(r, 10);
 const hv = rs => { const h = rs.reduce((a, r) => a + cv(r), 0), a = rs.includes(1); return { h, a, b: (a && h + 10 <= 21) ? h + 10 : h }; };
 const survive = (m, k) => { let p = 1; for (let i = 0; i < k; i++) p *= (25 - m - i) / (25 - i); return p; };
-const minesMult = (m, k) => k === 0 ? 1 : (1 / survive(m, k)) * 0.96;
+const minesMult = (m, k) => k === 0 ? 1 : (1 / survive(m, k)) * 0.75;
 const twMult = k => .75 * Math.pow(1.5, k);
 
 // ---- card / dice games (infinite deck, so every probability below is exact and every bet returns exactly 75% on average) ----
@@ -240,11 +256,11 @@ function startSession(u, game, bet, p, ctx) {
   throw 'Unknown game.';
 }
 const bjPub = (S, reveal) => ({ P: S.P, up: S.Dl[0], Dl: reveal ? S.Dl : undefined });
-const INTERACTIVE = ['towers', 'hilo', 'crash', 'mines', 'blackjack'];
+const INTERACTIVE = ['towers', 'hilo', 'mines', 'blackjack'];   // Crash was removed; its code below only settles any round that was still open
 
 // finish: pays the user, rotates nothing (seed already rotated at start), returns the response payload
 function finish(u, S, mult, extra) {
-  const pay = S.bet * mult, wager = S.wager; u.session = null;
+  const pay = Math.min(S.bet * mult, MAX_WIN), wager = S.wager; u.session = null;
   if (pay > 0) doPay(u, S.game, pay, wager);
   save(); return Object.assign({ done: true, pay: r2(pay), mult, balance: r2(u.balance), reveal: revealOf(S.ctx), fair: fairPub(u) }, extra || {});
 }
@@ -318,7 +334,10 @@ const routes = {
     if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return send(res, 400, { error: 'Username: 3-16 letters, numbers or _.' });
     if (pw.length < 6 || pw.length > 100) return send(res, 400, { error: 'Password must be at least 6 characters.' });
     if (db.users[k]) return send(res, 400, { error: 'That username is taken.' });
-    const salt = rhex(16); db.users[k] = { name, salt, hash: hashPw(pw, salt), balance: 0, created: Date.now(), stats: blank(), tips: [], deposits: [], promos: [], notes: [], session: null };
+    const ip = clientIp(req), dev = deviceOf(req);
+    if (dev && Object.values(db.users).some(x => x.device === dev)) return send(res, 400, { error: 'This device already has an account — log in to it. Rule #1: one account per person.' });
+    if (Object.values(db.users).filter(x => (x.ips || []).includes(ip)).length >= MAX_PER_IP) return send(res, 400, { error: 'Too many accounts from your network. Rule #1: one account per person.' });
+    const salt = rhex(16); db.users[k] = { name, salt, hash: hashPw(pw, salt), balance: 0, created: Date.now(), stats: blank(), tips: [], deposits: [], promos: [], notes: [], session: null, ips: [ip], device: dev, lw: 0 };
     ensureFair(db.users[k]); const t = issueToken(k); lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(db.users[k]) });
   },
   'POST /api/login': async (req, res, b) => {
@@ -326,7 +345,7 @@ const routes = {
     if (Date.now() - f.t > 300000) { f.n = 0; f.t = Date.now(); } if (f.n >= 10) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
     const u = db.users[k];
     if (!u || !crypto.timingSafeEqual(Buffer.from(hashPw(String(b.pw || ''), u.salt), 'hex'), Buffer.from(u.hash, 'hex'))) { f.n++; fails[ip] = f; return send(res, 401, { error: 'Wrong username or password.' }); }
-    const t = issueToken(k); lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(u) });
+    noteIp(u, req); const t = issueToken(k); lastSeen[k] = Date.now(); save(); send(res, 200, { token: t, me: publicMe(u) });
   },
   'POST /api/logout': async (req, res) => { const a = authUser(req); if (a) { delete db.tokens[a.t]; delete lastSeen[a.k]; save(); } send(res, 200, { ok: true }); },
   'GET /api/state': async (req, res) => {
@@ -334,10 +353,10 @@ const routes = {
     let balloon = null; const B = balloons[a.k];
     if (B && !B.sent) { B.sent = Date.now(); } if (B && B.sent) { if (Date.now() - B.sent > 15000) delete balloons[a.k]; else balloon = { id: B.id, amt: B.amt }; }
     if (!balloons[a.k] && Date.now() - (u.lastBalloon || 0) > 110000 && Math.random() < 0.03) { u.lastBalloon = Date.now(); balloons[a.k] = { id: rhex(6), amt: [0.01, 0.02, 0.03][Math.floor(Math.random() * 3)] }; }
-    send(res, 200, { me: publicMe(u), players: players(), notes, balloon, cfg: { bac: BAC_M, sic: SIC, minWithdraw: MIN_WITHDRAW, minDeposit: MIN_DEPOSIT, autoDeposit: !!(NP_KEY && NP_SECRET && PUBLIC_URL), maxBet: MAX_BET } });
+    send(res, 200, { me: publicMe(u), players: players(), notes, balloon, cfg: { wd: { needDeposit: WD_NEED_DEPOSIT, turnover: WD_TURNOVER }, maxWin: MAX_WIN, bac: BAC_M, sic: SIC, minWithdraw: MIN_WITHDRAW, minDeposit: MIN_DEPOSIT, autoDeposit: !!(NP_KEY && NP_SECRET && PUBLIC_URL), maxBet: MAX_BET } });
   },
   'POST /api/balloon/claim': async (req, res, b) => {
-    const a = needUser(req, res); if (!a) return; const B = balloons[a.k];
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return; const B = balloons[a.k];
     if (!B || B.id !== b.id || !B.sent || Date.now() - B.sent > 15000) return send(res, 400, { error: 'Too late.' });
     delete balloons[a.k]; a.u.balance += B.amt; save(); send(res, 200, { balance: r2(a.u.balance), amt: B.amt });
   },
@@ -348,17 +367,17 @@ const routes = {
   },
   // ---- games ----
   'POST /api/game/play': async (req, res, b) => {
-    const a = needUser(req, res); if (!a) return; const u = a.u, game = String(b.game || '');
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return; const u = a.u, game = String(b.game || '');
     try {
       if (INTERACTIVE.includes(game) || !RTP[game]) throw 'Unknown game.'; if (u.session) abandon(u);
       const amt = num(cents(Number(b.bet)), MIN_BET, MAX_BET); if (amt === null) throw `Bet must be between $${MIN_BET} and $${MAX_BET}.`; if (amt > u.balance + 1e-9) throw 'Insufficient balance.';
       const ctx0 = { server: u.fair.server, client: u.fair.client, nonce: u.fair.nonce }; const out = playOnce(game, b.params || {}, ctx0);   // validate before charging
-      const ctx = beginRound(u); doBet(u, game, amt); const pay = amt * out.mult; if (pay > 0) doPay(u, game, pay, amt); save();
+      const ctx = beginRound(u); doBet(u, game, amt); const pay = Math.min(amt * out.mult, MAX_WIN); if (pay > 0) doPay(u, game, pay, amt); save();
       send(res, 200, { pay: r2(pay), mult: out.mult, result: out.result, balance: r2(u.balance), reveal: revealOf(ctx), fair: fairPub(u) });
     } catch (e) { if (typeof e === 'string') return send(res, 400, { error: e }); throw e; }
   },
   'POST /api/game/start': async (req, res, b) => {
-    const a = needUser(req, res); if (!a) return; const u = a.u, game = String(b.game || '');
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return; const u = a.u, game = String(b.game || '');
     try {
       if (!INTERACTIVE.includes(game)) throw 'Unknown game.'; if (u.session) abandon(u);
       const amt = num(cents(Number(b.bet)), MIN_BET, MAX_BET); if (amt === null) throw `Bet must be between $${MIN_BET} and $${MAX_BET}.`; if (amt > u.balance + 1e-9) throw 'Insufficient balance.';
@@ -374,10 +393,10 @@ const routes = {
   },
   // ---- social / wallet ----
   'POST /api/tip': async (req, res, b) => {
-    const a = needUser(req, res); if (!a) return;
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return;
     const to = String(b.to || '').trim().toLowerCase(), amt = num(cents(Number(b.amt)), 0.1, 100000), note = String(b.note || '').slice(0, 40).replace(/[<>&"]/g, '');
     if (!to) return send(res, 400, { error: 'Enter a username.' }); if (!db.users[to]) return send(res, 400, { error: 'No player with that username.' });
-    if (to === a.k) return send(res, 400, { error: "You can't tip yourself." }); if (amt === null) return send(res, 400, { error: 'Tip must be between $0.10 and $100,000.' });
+    if (to === a.k) return send(res, 400, { error: "You can't tip yourself." }); if (groupOf(a.u).includes(db.users[to])) return send(res, 400, { error: "You can't tip another account on your own device or network (rule #1: one account per person)." }); if (amt === null) return send(res, 400, { error: 'Tip must be between $0.10 and $100,000.' });
     if (amt > a.u.balance + 1e-9) return send(res, 400, { error: 'Insufficient balance.' });
     const tt = (tipTimes[a.k] = (tipTimes[a.k] || []).filter(x => Date.now() - x < 60000)); if (tt.length >= 10) return send(res, 429, { error: 'Slow down — max 10 tips per minute.' }); tt.push(Date.now());
     const r = db.users[to], now = Date.now(); a.u.balance -= amt; r.balance += amt;
@@ -385,18 +404,24 @@ const routes = {
     send(res, 200, { balance: r2(a.u.balance), me: publicMe(a.u), message: `Sent $${amt.toFixed(2)} to ${r.name}!` });
   },
   'POST /api/promo': async (req, res, b) => {
-    const a = needUser(req, res); if (!a) return; const code = String(b.code || '').toUpperCase().replace(/\s+/g, ''), c = db.codes.find(x => x.code === code);
-    if (!c) return send(res, 400, { error: 'Invalid promo code.' }); if (a.u.promos.some(p => p.h === code)) return send(res, 400, { error: 'You already redeemed this code.' });
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return;
+    const u = a.u, code = String(b.code || '').toUpperCase().replace(/\s+/g, ''), c = db.codes.find(x => x.code === code);
+    if (!c) return send(res, 400, { error: 'Invalid promo code.' }); if (u.promos.some(p => p.h === code)) return send(res, 400, { error: 'You already redeemed this code.' });
     if ((db.uses[code] || 0) >= c.maxUses) return send(res, 400, { error: 'This code has reached its usage limit.' });
-    db.uses[code] = (db.uses[code] || 0) + 1; a.u.balance += c.amount; a.u.promos.push({ h: code, amt: c.amount, t: Date.now() }); save(); send(res, 200, { amount: c.amount, balance: r2(a.u.balance), me: publicMe(a.u) });
+    const dep = totalDeposits(u), wg = lifeWagered(u);
+    if (c.minDeposit && dep < c.minDeposit) return send(res, 400, { error: `This code needs at least $${c.minDeposit.toFixed(2)} in deposits (you have $${dep.toFixed(2)}).` });
+    if (c.minWager && wg < c.minWager) return send(res, 400, { error: `This code needs at least $${c.minWager.toFixed(2)} wagered in total (you have wagered $${wg.toFixed(2)}).` });
+    // another account on the same device/network already took a promo = farming with alt accounts: freeze every account in the group
+    if (groupOf(u).some(o => (o.promos || []).length > 0)) { flagAccounts([u, ...groupOf(u)], 'Multiple accounts on one device or network claiming promo codes'); save(); return send(res, 403, { error: 'Your account is frozen (rule #1: one account per person).', flagged: true, flag: u.flag }); }
+    db.uses[code] = (db.uses[code] || 0) + 1; u.balance += c.amount; u.promos.push({ h: code, amt: c.amount, t: Date.now() }); save(); send(res, 200, { amount: c.amount, balance: r2(u.balance), me: publicMe(u) });
   },
   'POST /api/deposit/request': async (req, res, b) => {   // manual deposit: the player says they paid; a moderator confirms and credits it
-    const a = needUser(req, res); if (!a) return; const amt = num(cents(Number(b.amount)), MIN_DEPOSIT, 100000), note = String(b.note || '').slice(0, 120).replace(/[<>&"]/g, '');
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return; const amt = num(cents(Number(b.amount)), MIN_DEPOSIT, 100000), note = String(b.note || '').slice(0, 120).replace(/[<>&"]/g, '');
     if (amt === null) return send(res, 400, { error: `Minimum deposit is $${MIN_DEPOSIT}.` }); if (db.deposits.filter(d => d.user === a.k && d.status === 'pending').length >= 3) return send(res, 400, { error: 'You already have 3 pending deposit requests.' });
     db.deposits.push({ id: rhex(5), user: a.k, name: a.u.name, amount: amt, method: 'manual', note, status: 'pending', created: Date.now() }); save(); send(res, 200, { message: 'Deposit request sent. A moderator will credit it after checking your payment.', me: publicMe(a.u) });
   },
   'POST /api/deposit/create': async (req, res, b) => {   // automatic deposit via NOWPayments (crypto) — credited by the webhook below
-    const a = needUser(req, res); if (!a) return; if (!(NP_KEY && NP_SECRET && PUBLIC_URL)) return send(res, 400, { error: 'Automatic deposits are not set up on this server. Use a deposit request instead.' });
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return; if (!(NP_KEY && NP_SECRET && PUBLIC_URL)) return send(res, 400, { error: 'Automatic deposits are not set up on this server. Use a deposit request instead.' });
     const amt = num(cents(Number(b.amount)), MIN_DEPOSIT, 100000); if (amt === null) return send(res, 400, { error: `Minimum deposit is $${MIN_DEPOSIT}.` });
     const dep = { id: rhex(8), user: a.k, name: a.u.name, amount: amt, method: 'auto', note: '', status: 'pending', created: Date.now() };
     try {
@@ -410,15 +435,20 @@ const routes = {
     const sig = String(req.headers['x-nowpayments-sig'] || ''), mine = crypto.createHmac('sha512', NP_SECRET).update(JSON.stringify(sortStr(b))).digest('hex');
     if (sig.length !== mine.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(mine))) return send(res, 401, { error: 'bad signature' });
     const d = db.deposits.find(x => x.id === String(b.order_id) && x.method === 'auto');
-    if (d && d.status === 'pending' && b.payment_status === 'finished') { const u = db.users[d.user]; if (u) { u.balance += d.amount; u.notes.push(`💰 Deposit of $${d.amount.toFixed(2)} confirmed`); } d.status = 'paid'; d.paidAt = Date.now(); save(); }
+    if (d && d.status === 'pending' && b.payment_status === 'finished') { const u = db.users[d.user]; if (u) { u.balance += d.amount; u.deposits.push({ amt: d.amount, t: Date.now() }); u.notes.push(`💰 Deposit of $${d.amount.toFixed(2)} confirmed`); } d.status = 'paid'; d.paidAt = Date.now(); save(); }
     else if (d && d.status === 'pending' && ['failed', 'expired', 'refunded'].includes(b.payment_status)) { d.status = 'rejected'; save(); }
     send(res, 200, { ok: true });
   },
   'POST /api/withdraw': async (req, res, b) => {
-    const a = needUser(req, res); if (!a) return; if (a.u.session) return send(res, 400, { error: 'Finish your current round first.' });
+    const a = needUser(req, res); if (!a) return; if (frozen(res, a.u)) return; if (a.u.session) return send(res, 400, { error: 'Finish your current round first.' });
     const amt = num(cents(Number(b.amount)), MIN_WITHDRAW, 1e6), dest = String(b.dest || '').trim().slice(0, 150).replace(/[<>&"]/g, '');
     if (amt === null) return send(res, 400, { error: `Minimum withdrawal is $${MIN_WITHDRAW}.` }); if (dest.length < 3) return send(res, 400, { error: 'Enter where to send the money (crypto address, Discord handle…).' });
     if (amt > a.u.balance + 1e-9) return send(res, 400, { error: 'Insufficient balance.' });
+    if (WD_NEED_DEPOSIT) {
+      const dep = totalDeposits(a.u), wg = lifeWagered(a.u);
+      if (dep < MIN_DEPOSIT) return send(res, 400, { error: `Withdrawals unlock after your first deposit (minimum $${MIN_DEPOSIT}). Promo and bonus money can be played with, but not withdrawn before that.` });
+      if (WD_TURNOVER > 0 && wg < dep * WD_TURNOVER) return send(res, 400, { error: `Wager at least $${(dep * WD_TURNOVER).toFixed(2)} in total before withdrawing (you have wagered $${wg.toFixed(2)}).` });
+    }
     if (db.withdrawals.filter(w => w.user === a.k && w.status === 'pending').length >= 3) return send(res, 400, { error: 'You already have 3 pending withdrawals.' });
     a.u.balance -= amt; db.withdrawals.push({ id: rhex(5), user: a.k, name: a.u.name, amount: amt, dest, status: 'pending', created: Date.now() }); save();
     send(res, 200, { message: `Withdrawal of $${amt.toFixed(2)} requested. A moderator will pay it manually.`, balance: r2(a.u.balance), me: publicMe(a.u) });
@@ -434,7 +464,7 @@ const routes = {
   'GET /api/mod/state': async (req, res) => {
     if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const users = {}, online = {};
     Object.keys(db.users).forEach(k => { const { salt, hash, notes, fair, session, ...rest } = db.users[k]; users[k] = rest; online[k] = Date.now() - (lastSeen[k] || 0) < 8000; });
-    send(res, 200, { users, online, codes: db.codes.map(c => ({ ...c, used: db.uses[c.code] || 0 })), deposits: db.deposits.slice(-100).reverse(), withdrawals: db.withdrawals.slice(-100).reverse() });
+    send(res, 200, { users, online, codes: db.codes.map(c => ({ ...c, used: db.uses[c.code] || 0 })), deposits: db.deposits.slice(-100).reverse().map(d => ({ ...d, info: db.users[d.user] ? userInfo(db.users[d.user]) : null })), withdrawals: db.withdrawals.slice(-100).reverse().map(w => ({ ...w, info: db.users[w.user] ? userInfo(db.users[w.user]) : null })) });
   },
   'POST /api/mod/deposit': async (req, res, b) => {
     if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const k = String(b.name || '').trim().toLowerCase(), amt = num(cents(Number(b.amt)), 0.01, 100000), u = db.users[k];
@@ -458,7 +488,14 @@ const routes = {
   'POST /api/mod/promo': async (req, res, b) => {
     if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const code = String(b.code || '').trim().toUpperCase(), amt = num(cents(Number(b.amount)), 0.01, 100000), max = Math.floor(Number(b.max));
     if (!/^[A-Z0-9_-]{3,20}$/.test(code)) return send(res, 400, { error: 'Code: 3-20 letters, numbers, - or _.' }); if (amt === null) return send(res, 400, { error: 'Enter a valid amount.' }); if (!(max >= 1)) return send(res, 400, { error: 'Max uses must be at least 1.' });
-    if (db.codes.some(c => c.code === code)) return send(res, 400, { error: 'That code already exists.' }); db.codes.push({ code, amount: amt, maxUses: max, created: Date.now() }); save(); send(res, 200, { message: `Created ${code} ($${amt.toFixed(2)}, ${max} use${max > 1 ? 's' : ''}).` });
+    if (db.codes.some(c => c.code === code)) return send(res, 400, { error: 'That code already exists.' }); const mw = num(cents(Number(b.minWager || 0)), 0, 1e6) || 0, md = num(cents(Number(b.minDeposit || 0)), 0, 1e6) || 0; db.codes.push({ code, amount: amt, maxUses: max, minWager: mw, minDeposit: md, created: Date.now() }); save(); send(res, 200, { message: `Created ${code} ($${amt.toFixed(2)}, ${max} use${max > 1 ? 's' : ''}${mw ? ', needs $' + mw.toFixed(2) + ' wagered' : ''}${md ? ', needs $' + md.toFixed(2) + ' deposited' : ''}).` });
+  },
+  'POST /api/mod/flag': async (req, res, b) => {
+    if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); const u = db.users[String(b.name || '').trim().toLowerCase()]; if (!u) return send(res, 400, { error: 'No account with that username.' });
+    if (b.action === 'restore') { if (!u.flag) return send(res, 400, { error: 'That account is not flagged.' }); u.balance += u.flag.reset || 0; u.notes.push('✅ A moderator reviewed your account and restored it.'); delete u.flag; save(); return send(res, 200, { message: `Restored ${u.name}${'' }.` }); }
+    if (b.action === 'ban') { u.flag = Object.assign(u.flag || { t: Date.now() }, { reason: (u.flag && u.flag.reason) || 'Banned by a moderator', banned: true, reset: 0 }); u.session = null; save(); return send(res, 200, { message: `${u.name} is banned.` }); }
+    if (b.action === 'freeze') { flagAccounts([u], 'Frozen by a moderator'); save(); return send(res, 200, { message: `${u.name} is frozen.` }); }
+    send(res, 400, { error: 'Bad action.' });
   },
   'POST /api/mod/promo-delete': async (req, res, b) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); db.codes = db.codes.filter(c => c.code !== b.code); save(); send(res, 200, { message: 'Deleted.' }); },
   'POST /api/mod/reset-stats': async (req, res) => { if (!isMod(req)) return send(res, 403, { error: 'Wrong moderator key.' }); Object.values(db.users).forEach(u => { u.stats = blank(); }); save(); send(res, 200, { message: 'All stats were reset. Balances were not changed.' }); }
