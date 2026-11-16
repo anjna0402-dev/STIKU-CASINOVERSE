@@ -303,7 +303,7 @@
           <i class="fa-solid fa-fire text-amber-500"></i>
           <span>Stiku Originals & Slots</span>
         </h2>
-        <span class="flex items-center space-x-3"><button id="lobby-stats" class="px-3 py-1.5 rounded-lg bg-stake-card hover:bg-stone-700 text-white text-xs font-bold">🏆 Top 20 &amp; My Stats</button><span class="text-xs font-bold text-stake-muted">21 Games Available</span></span>
+        <span class="flex items-center space-x-3"><button id="lobby-stats" class="px-3 py-1.5 rounded-lg bg-stake-card hover:bg-stone-700 text-white text-xs font-bold">🏆 Top 20 &amp; My Stats</button><span class="text-xs font-bold text-stake-muted">20 Games Available</span></span>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -333,7 +333,7 @@
           <p class="text-[10px] text-stake-muted truncate">Stiku Originals</p>
           <div class="flex items-center justify-between mt-2 text-[10px]">
             <span class="text-stake-accent font-bold">● Live</span>
-            <span class="text-emerald-400 font-bold font-mono">96.00% RTP</span>
+            <span class="text-emerald-400 font-bold font-mono">75.00% RTP</span>
           </div>
         </div>
 
@@ -365,12 +365,6 @@
           <div class="flex items-center justify-between mt-2 text-[10px]"><span class="text-stake-accent font-bold">● Live</span><span class="text-pink-400 font-bold font-mono">79.99% RTP</span></div>
         </div>
 
-        <div id="crash-card-btn" data-fair="crash" class="bg-stake-panel border border-stake-card hover:border-red-500/60 rounded-2xl p-3 cursor-pointer group transition-all duration-200 hover:-translate-y-1">
-          <div class="aspect-square rounded-xl bg-gradient-to-br from-red-900/70 to-stone-950 flex items-center justify-center mb-3 border border-red-500/30"><div class="text-4xl group-hover:scale-110 transition-transform">📈</div></div>
-          <h3 class="font-bold text-xs text-white truncate">Crash</h3>
-          <p class="text-[10px] text-stake-muted truncate">Stiku Originals</p>
-          <div class="flex items-center justify-between mt-2 text-[10px]"><span class="text-stake-accent font-bold">● Live</span><span class="text-red-400 font-bold font-mono">75.00% RTP</span></div>
-        </div>
 
         <div id="wheel-card-btn" data-fair="wheel" class="bg-stake-panel border border-stake-card hover:border-yellow-500/60 rounded-2xl p-3 cursor-pointer group transition-all duration-200 hover:-translate-y-1">
           <div class="aspect-square rounded-xl bg-gradient-to-br from-yellow-900/70 to-stone-950 flex items-center justify-center mb-3 border border-yellow-500/30"><div class="text-4xl group-hover:scale-110 transition-transform">🎡</div></div>
@@ -638,7 +632,7 @@
           <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-700 to-teal-900 flex items-center justify-center text-xl border border-emerald-600/40">💎</div>
           <div>
             <h3 class="font-bold text-white text-sm">Mines</h3>
-            <p class="text-[10px] text-stake-muted">RTP <span id="mines-rtp-badge" class="text-stake-accent font-bold">96.00%</span> • 4% house edge</p>
+            <p class="text-[10px] text-stake-muted">RTP <span id="mines-rtp-badge" class="text-stake-accent font-bold">75.00%</span> • 25% house edge</p>
           </div>
         </div>
       </div>
@@ -712,7 +706,7 @@
       <details class="w-full max-w-md mt-3 bg-stake-panel rounded-xl border border-stake-card text-xs text-stake-text">
         <summary class="cursor-pointer px-3 py-2.5 font-bold text-white">Game info, RTP &amp; verification</summary>
         <div class="px-3 pb-3 space-y-3">
-          <p>Payout for <i>k</i> safe tiles = (1 ÷ chance of surviving <i>k</i> picks) × (1 − 0.04). Because of that, the RTP is the same <b class="text-white">96.00%</b> whatever the mine count or cash-out point.</p>
+          <p>Payout for <i>k</i> safe tiles = (1 ÷ chance of surviving <i>k</i> picks) × (1 − 0.25). Because of that, the RTP is the same <b class="text-white">75.00%</b> whatever the mine count or cash-out point.</p>
           <div class="bg-stake-dark rounded-lg p-2 border border-stake-card font-mono">
             Theoretical RTP (current mines, any cash-out): <span id="mines-theory-rtp" class="text-stake-accent font-bold"></span>
           </div>
@@ -769,6 +763,14 @@
     </main>
   </div>
 
+  <!-- FROZEN ACCOUNT WARNING (rule #1) -->
+  <div id="flag-overlay" class="hidden fixed inset-0 z-[100] bg-red-950 flex items-center justify-center p-6 text-center">
+    <div class="max-w-md space-y-4"><div class="text-6xl">🚫</div><h1 class="text-2xl font-black text-white">RULE #1 — ONE ACCOUNT PER PERSON</h1>
+      <p id="flag-text" class="text-red-100 text-sm leading-relaxed"></p>
+      <p class="text-red-200/80 text-xs">If you think this is a mistake (for example you share Wi-Fi with a family member), contact a moderator and explain. The account stays frozen until a moderator reviews it.</p>
+      <button id="flag-logout" class="px-6 py-3 rounded-xl bg-white text-red-900 font-black text-sm uppercase">Log out</button></div>
+  </div>
+
   <!-- AUTH MODAL -->
   <div id="auth-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
     <div class="bg-stake-panel border border-stone-700 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
@@ -780,6 +782,7 @@
       <div id="auth-mode" class="text-[11px] font-bold rounded-lg px-3 py-2 hidden"></div>
       <div id="auth-err" class="text-xs font-bold text-red-400 min-h-[1rem]"></div>
       <button id="auth-submit" class="btn-stiku-green w-full py-3 rounded-xl font-black text-sm uppercase tracking-wider"></button>
+      <p class="text-[11px] font-bold text-amber-300 text-center leading-tight">Rule #1: one account per person. Alt accounts are frozen and their balance is reset.</p>
       <p class="text-[10px] text-stone-500 leading-tight text-center">Passwords are salted and hashed in this browser and never shown or shared. 18+ only.</p>
     </div>
   </div>
@@ -1544,7 +1547,7 @@
   <script>
     // ===================== MINES (honest 98% RTP, provably fair) =====================
     (() => {
-      const TILES = 25, EDGE = 0.04;
+      const TILES = 25, EDGE = 0.25;
       const minesScreen = document.getElementById('mines-screen');
       const $ = id => document.getElementById(id);
       const M = {
@@ -2428,15 +2431,24 @@
         try { updateUI(); } catch (e) {}
         return state.balance;
       };
+      // Full-screen warning for accounts frozen under rule #1 (shown again on every poll until a moderator restores the account).
+      window.applyFlag = function (f) {
+        const el = document.getElementById('flag-overlay'); if (!el) return;
+        if (!f) { el.classList.add('hidden'); return; }
+        document.getElementById('flag-text').textContent = (f.banned ? 'This account has been banned. ' : 'Multiple accounts were detected on your device or network. ') + (f.reset > 0 ? `Your balance of $${Number(f.reset).toFixed(2)} was reset to $0.00. ` : '') + 'Reason: ' + f.reason + '.';
+        el.classList.remove('hidden');
+        if (f.reset > 0) { state.balance = 0; try { updateUI(); } catch (e) {} }   // show the reset immediately
+      };
       let me = null, mode = 'login'; window.StikuUser = () => me;
       // ---- Server mode: when this page is served by server.js, accounts / balances / tips / online live on the server ----
       const Net = window.Net = {
-        on: false, token: sessionStorage.getItem('stiku_tok') || '', me: null, pub: [], inflight: 0, modData: null,
+        on: false, token: sessionStorage.getItem('stiku_tok') || '', me: null,
+        device: (() => { try { let d = localStorage.getItem('stiku_device'); if (!d) { d = [...crypto.getRandomValues(new Uint8Array(12))].map(x => x.toString(16).padStart(2, '0')).join(''); localStorage.setItem('stiku_device', d); } return d; } catch (e) { return ''; } })(), pub: [], inflight: 0, modData: null,
         async api(path, body, extra = {}) {
           Net.inflight++;
           try {
-            const r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, Net.token ? { Authorization: 'Bearer ' + Net.token } : {}, extra), body: body === undefined ? undefined : JSON.stringify(body) });
-            const j = await r.json().catch(() => ({})); if (!r.ok && !j.error) j.error = 'Server error'; j.status = r.status; return j;
+            const r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: Object.assign({ 'Content-Type': 'application/json', 'x-device': Net.device }, Net.token ? { Authorization: 'Bearer ' + Net.token } : {}, extra), body: body === undefined ? undefined : JSON.stringify(body) });
+            const j = await r.json().catch(() => ({})); if (!r.ok && !j.error) j.error = 'Server error'; j.status = r.status; if (j.flagged && j.flag) window.applyFlag(j.flag); return j;
           } catch (e) { return { error: 'Cannot reach the server.', status: 0 }; } finally { Net.inflight--; }
         },
         send(path, body) { return Net.api(path, body); },
@@ -2494,7 +2506,7 @@
         beat(); updateUI(); toast('Welcome, ' + users[key].name + '!');
       }
       function loginRemote(m) {
-        me = m.name.toLowerCase(); Net.me = m; updateBalance({ me: m }); state.sessionProfit = 0;
+        me = m.name.toLowerCase(); Net.me = m; applyFlag(m.flag); updateBalance({ me: m }); state.sessionProfit = 0;
         $('auth-pass').value = $('auth-pass2').value = ''; $('auth-modal').classList.add('hidden'); $('nav-auth-label').textContent = m.name + ' • Log out';
         updateUI(); toast('Welcome, ' + m.name + '!'); poll();
       }
@@ -2503,7 +2515,7 @@
         const r = await Net.api('/api/state');
         if (r.status === 401) { sessionStorage.removeItem('stiku_tok'); location.reload(); return; }
         if (!r.me) return;
-        Net.me = r.me; Net.pub = r.players;
+        Net.me = r.me; Net.pub = r.players; applyFlag(r.me.flag);
         Net.cfg = r.cfg || Net.cfg || {};
         if (!Net.inflight && !Net.hold && Math.abs(state.balance - r.me.balance) > 1e-6) updateBalance(r);
         if (r.balloon && r.balloon.id !== Net.lastBalloon) { Net.lastBalloon = r.balloon.id; try { spawnBalloon(r.balloon); } catch (e) {} }
@@ -2719,6 +2731,9 @@ Net.ready.then(async () => {
         u.promos = u.promos || [];
         if (u.promos.filter(p => p.h === h).length >= c.perAccount) return msg('You already redeemed this code.');
         if ((uses[h] || 0) >= c.maxUses) return msg('This code has reached its usage limit.');
+        const wg0 = (u.stats && u.stats.wagered) || 0, dp0 = (u.deposits || []).reduce((x, d) => x + d.amt, 0);
+        if (c.minDeposit && dp0 < c.minDeposit) return msg(`This code needs at least $${c.minDeposit} in deposits.`);
+        if (c.minWager && wg0 < c.minWager) return msg(`This code needs at least $${c.minWager} wagered.`);
         uses[h] = (uses[h] || 0) + 1; localStorage.setItem(USES, JSON.stringify(uses));
         state.balance += c.amount; u.balance = state.balance; u.promos.push({ h, amt: c.amount, t: Date.now() });
         localStorage.setItem(KEY, JSON.stringify(users)); updateUI();
@@ -2750,6 +2765,7 @@ Net.ready.then(async () => {
     // Access needs the moderator key (stored only as a SHA-256 hash). To change it: run  Mod.hash('new key')  in the console and paste the result into MOD_HASH.
     (() => {
       const $ = id => document.getElementById(id), enc = new TextEncoder(), KEY = 'stiku_users', PRES = 'stiku_presence', SES = 'stiku_mod';
+      const RTP_ALERT = 0.90;   // the mod panel warns when players are paid more than this share of the money wagered
       const MOD_HASH = '093a366bdb75bd7e284c306c2b1715248946ff620b2b588cfcf6455173a52b9c';
       const sha = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(t)))].map(x => x.toString(16).padStart(2, '0')).join('');
       window.Mod = { hash: k => sha('stiku-mod:' + k) };
@@ -2765,21 +2781,21 @@ Net.ready.then(async () => {
           (u.tips || []).forEach(t => { if (t.dir === 'out') T.tips += t.amt; });
           T.promos += (u.promos || []).reduce((a, p) => a + p.amt, 0); T.dep += (u.deposits || []).reduce((a, d) => a + d.amt, 0);
           Object.keys(st.games || {}).forEach(g => { const x = G[g] = G[g] || { w: 0, p: 0, b: 0 }; x.w += st.games[g].wagered; x.p += st.games[g].payout; x.b += st.games[g].bets; });
-          rows.push({ name: u.name, bal: u.balance || 0, w: st.wagered, net: st.payout - st.wagered, bets: st.bets, on: Date.now() - (pres[k] || 0) < 8000, joined: u.created });
+          rows.push({ flag: !!u.flag, name: u.name, bal: u.balance || 0, w: st.wagered, net: st.payout - st.wagered, bets: st.bets, on: Date.now() - (pres[k] || 0) < 8000, joined: u.created });
         });
         rows.sort((a, b) => b.w - a.w);
         const card = (l, v, c = 'text-white') => `<div class="bg-stake-dark border border-stake-card rounded-xl p-3"><div class="text-[10px] uppercase font-bold text-stake-muted">${l}</div><div class="font-mono font-bold mt-1 ${c}">${v}</div></div>`;
-        const house = T.wag - T.pay;
+        const house = T.wag - T.pay, rtpAll = T.wag ? T.pay / T.wag : 0, hot = T.wag >= 100 && rtpAll > RTP_ALERT;
         if (!$('mod-stats')) return;
         $('mod-stats').innerHTML = `
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${card('Accounts', names.length)}${card('Online now', rows.filter(r => r.on).length, 'text-stake-accent')}${card('Total bets', T.bets.toLocaleString())}${card('Total wagered', money(T.wag))}
-          ${card('Total paid out', money(T.pay))}${card('House profit', money(house), house >= 0 ? 'text-stake-accent' : 'text-red-400')}${card('Realized RTP', T.wag ? (T.pay / T.wag * 100).toFixed(2) + '%' : '—')}${card('Player balances', money(T.bal))}
+          ${hot ? '<div class="bg-red-950/60 border border-red-700 text-red-200 text-xs font-bold rounded-lg px-3 py-2 mb-2">⚠ Players have been paid ' + (rtpAll * 100).toFixed(1) + '% of everything wagered (above ' + (RTP_ALERT * 100) + '%). Look for ⚠ marks in the Players table, and consider lowering MAX_BET or MAX_WIN on the server.</div>' : ''}<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${card('Accounts', names.length)}${card('Online now', rows.filter(r => r.on).length, 'text-stake-accent')}${card('Total bets', T.bets.toLocaleString())}${card('Total wagered', money(T.wag))}
+          ${card('Total paid out', money(T.pay))}${card('House profit', money(house), house >= 0 ? 'text-stake-accent' : 'text-red-400')}${card('Realized RTP', T.wag ? (T.pay / T.wag * 100).toFixed(2) + '%' : '—', hot ? 'text-red-400' : 'text-white')}${card('Player balances', money(T.bal))}
           ${card('Tipped between players', money(T.tips))}${card('Promo credit given', money(T.promos))}${card('Deposited by mods', money(T.dep))}</div>
           <div><div class="text-[10px] font-bold uppercase text-stake-muted mb-1">Per game — realized vs. advertised RTP</div><div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-stake-muted uppercase text-[10px]"><tr><th class="text-left py-2">Game</th><th class="text-right">Bets</th><th class="text-right">Wagered</th><th class="text-right">Paid out</th><th class="text-right">House profit</th><th class="text-right">Realized</th><th class="text-right">Advertised</th></tr></thead><tbody>
-          ${Object.keys(GN).map(g => { const x = G[g] || { w: 0, p: 0, b: 0 }; return `<tr class="border-t border-stake-card"><td class="py-2 font-bold text-white">${GN[g][0]}</td><td class="text-right font-mono">${x.b}</td><td class="text-right font-mono">${money(x.w)}</td><td class="text-right font-mono">${money(x.p)}</td><td class="text-right font-mono ${x.w - x.p >= 0 ? 'text-stake-accent' : 'text-red-400'}">${money(x.w - x.p)}</td><td class="text-right font-mono">${x.w ? (x.p / x.w * 100).toFixed(1) + '%' : '—'}</td><td class="text-right font-mono text-stone-400">${GN[g][1] ? (GN[g][1] * 100).toFixed(2).replace(/\.00$/, '') + '%' : '—'}</td></tr>`; }).join('')}</tbody></table></div>
+          ${Object.keys(GN).map(g => { const x = G[g] || { w: 0, p: 0, b: 0 }; return `<tr class="border-t border-stake-card"><td class="py-2 font-bold text-white">${GN[g][0]}</td><td class="text-right font-mono">${x.b}</td><td class="text-right font-mono">${money(x.w)}</td><td class="text-right font-mono">${money(x.p)}</td><td class="text-right font-mono ${x.w - x.p >= 0 ? 'text-stake-accent' : 'text-red-400'}">${money(x.w - x.p)}</td><td class="text-right font-mono ${x.w >= 50 && x.p / x.w > RTP_ALERT ? 'text-red-400 font-bold' : ''}">${x.w ? (x.p / x.w * 100).toFixed(1) + '%' : '—'}</td><td class="text-right font-mono text-stone-400">${GN[g][1] ? (GN[g][1] * 100).toFixed(2).replace(/\.00$/, '') + '%' : '—'}</td></tr>`; }).join('')}</tbody></table></div>
           <p class="text-[10px] text-stone-500 mt-1">Realized RTP only settles toward the advertised number over many bets; small samples swing a lot.</p></div>
           <div><div class="text-[10px] font-bold uppercase text-stake-muted mb-1">Players</div><div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-stake-muted uppercase text-[10px]"><tr><th class="text-left py-2">Player</th><th class="text-right">Balance</th><th class="text-right">Wagered</th><th class="text-right">Net</th><th class="text-right">Bets</th><th class="text-right">Joined</th></tr></thead><tbody>
-          ${rows.map(r => `<tr class="border-t border-stake-card"><td class="py-2 font-bold text-white"><span class="${r.on ? 'text-stake-accent' : 'text-stone-600'}">●</span> ${r.name}</td><td class="text-right font-mono">${money(r.bal)}</td><td class="text-right font-mono">${money(r.w)}</td><td class="text-right font-mono ${r.net >= 0 ? 'text-stake-accent' : 'text-red-400'}">${money(r.net)}</td><td class="text-right font-mono">${r.bets}</td><td class="text-right text-stone-400">${r.joined ? new Date(r.joined).toLocaleDateString() : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="py-4 text-center text-stone-500">No accounts yet</td></tr>'}</tbody></table></div></div>
+          ${rows.map(r => `<tr class="border-t border-stake-card"><td class="py-2 font-bold text-white"><span class="${r.on ? 'text-stake-accent' : 'text-stone-600'}">●</span> ${r.name}${r.w >= 50 && (r.net + r.w) / r.w > RTP_ALERT ? ' <span title="Paid out more than ${RTP_ALERT * 100}% of what they wagered" class="text-red-400">⚠</span>' : ''}${r.flag ? ' 🚩' : ''}</td><td class="text-right font-mono">${money(r.bal)}</td><td class="text-right font-mono">${money(r.w)}</td><td class="text-right font-mono ${r.net >= 0 ? 'text-stake-accent' : 'text-red-400'}">${money(r.net)}</td><td class="text-right font-mono">${r.bets}</td><td class="text-right text-stone-400">${r.joined ? new Date(r.joined).toLocaleDateString() : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="py-4 text-center text-stone-500">No accounts yet</td></tr>'}</tbody></table></div></div>
           <p class="text-[10px] text-stone-500">Covers accounts stored in this browser only. Passwords are never shown (only salted hashes are stored).</p>`;
       }
       function toolsHtml() {
@@ -2790,7 +2806,9 @@ Net.ready.then(async () => {
             <button id="dep-go" class="btn-stiku-green w-full py-2.5 rounded-lg font-black text-xs uppercase">Credit account</button><div id="dep-msg" class="text-xs font-bold min-h-[1rem]"></div></div>
           <div class="bg-stake-dark/60 border border-stake-card rounded-xl p-3 space-y-2"><div class="font-bold text-white">🎁 Create promo code</div>
             <input id="pc-code" maxlength="20" placeholder="CODE (letters/numbers)" class="w-full ${inp} uppercase font-mono"><div class="grid grid-cols-2 gap-2"><input id="pc-amt" type="number" min="0.01" step="0.01" placeholder="Amount ($)" class="${inp}"><input id="pc-max" type="number" min="1" step="1" value="1" placeholder="Max uses" class="${inp}"></div>
+            <div class="grid grid-cols-2 gap-2"><input id="pc-minw" type="number" min="0" step="0.01" placeholder="Min wager $ (optional)" class="${inp}"><input id="pc-mind" type="number" min="0" step="0.01" placeholder="Min deposit $ (optional)" class="${inp}"></div>
             <button id="pc-go" class="btn-stiku-green w-full py-2.5 rounded-lg font-black text-xs uppercase">Create code</button><div id="pc-msg" class="text-xs font-bold min-h-[1rem]"></div><div id="pc-list" class="space-y-1.5"></div></div></div>
+          <div class="bg-stake-dark/60 border border-stake-card rounded-xl p-3 space-y-2"><div class="font-bold text-white">🚩 Freeze an account (rule #1)</div><div class="flex gap-2"><input id="frz-user" placeholder="Username" class="flex-1 ${inp}"><button id="frz-go" class="px-4 rounded-lg bg-red-700 hover:bg-red-600 text-white font-black text-xs uppercase">Freeze</button></div><div id="frz-msg" class="text-xs font-bold min-h-[1rem]"></div></div>
           <div class="bg-red-950/30 border border-red-900/50 rounded-xl p-3 flex items-center justify-between gap-3"><div class="text-xs text-red-200">Reset stats wipes every player's bets, wagers, wins and leaderboard history. Balances stay.</div><button id="reset-go" class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase shrink-0">Reset all stats</button></div>
           ${(window.Net && Net.on) ? '' : '<p class="text-[10px] text-stone-500">Running without the server: deposits, promo codes and accounts are saved in this browser only.</p>'}`;
       }
@@ -2808,11 +2826,14 @@ Net.ready.then(async () => {
         const el = $('mod-queues'); if (!el) return; if (!(window.Net && Net.on) || !Net.modData) { el.innerHTML = ''; return; }
         const W = Net.modData.withdrawals || [], Dp = Net.modData.deposits || [], pw = W.filter(x => x.status === 'pending'), pd = Dp.filter(x => x.status === 'pending');
         const chip = st => `<span class="px-2 py-0.5 rounded text-[10px] font-bold ${st === 'paid' ? 'bg-emerald-900 text-emerald-300' : st === 'rejected' ? 'bg-red-950 text-red-300' : 'bg-amber-900 text-amber-300'}">${st}</span>`;
+        const infoLine = i => i ? `<div class="text-[11px] text-stone-400">deposited ${money(i.deposited)} • wagered ${money(i.wagered)} • promo credit ${money(i.promos)}${i.group.length ? ` • <span class="text-red-300 font-bold">⚠ shares device/network with ${i.group.join(', ')}</span>` : ''}${i.flagged ? ' • <span class="text-red-300 font-bold">🚩 flagged</span>' : ''}</div>` : '';
         const btn = (a, id, label, c) => `<button data-qa="${a}" data-id="${id}" class="px-2.5 py-1 rounded ${c} text-white font-bold text-[11px]">${label}</button>`;
-        const wRow = w => `<div class="bg-stake-dark border ${w.status === 'pending' ? 'border-amber-700/50' : 'border-stake-card'} rounded-lg p-2 text-xs space-y-1"><div class="flex justify-between"><b class="text-white">${w.name} • ${money(w.amount)}</b><span class="text-stone-500">${new Date(w.created).toLocaleString()}</span></div><div class="text-stone-300 break-all">→ ${w.dest}</div>${w.status === 'pending' ? `<div class="flex gap-2">${btn('wpaid', w.id, 'Mark as paid', 'bg-emerald-700 hover:bg-emerald-600')}${btn('wrej', w.id, 'Reject & refund', 'bg-red-700 hover:bg-red-600')}</div>` : `<div>${chip(w.status)}${w.txid ? ' <span class="text-stone-400">tx ' + w.txid + '</span>' : ''}</div>`}</div>`;
-        const dRow = d => `<div class="bg-stake-dark border ${d.status === 'pending' ? 'border-amber-700/50' : 'border-stake-card'} rounded-lg p-2 text-xs space-y-1"><div class="flex justify-between"><b class="text-white">${d.name} • ${money(d.amount)} <span class="text-stone-500">(${d.method})</span></b><span class="text-stone-500">${new Date(d.created).toLocaleString()}</span></div>${d.note ? `<div class="text-stone-300 break-all">${d.note}</div>` : ''}${d.status === 'pending' && d.method === 'manual' ? `<div class="flex gap-2">${btn('dok', d.id, 'Approve & credit', 'bg-emerald-700 hover:bg-emerald-600')}${btn('drej', d.id, 'Reject', 'bg-red-700 hover:bg-red-600')}</div>` : `<div>${chip(d.status)}</div>`}</div>`;
+        const wRow = w => `<div class="bg-stake-dark border ${w.status === 'pending' ? 'border-amber-700/50' : 'border-stake-card'} rounded-lg p-2 text-xs space-y-1"><div class="flex justify-between"><b class="text-white">${w.name} • ${money(w.amount)}</b><span class="text-stone-500">${new Date(w.created).toLocaleString()}</span></div><div class="text-stone-300 break-all">→ ${w.dest}</div>${infoLine(w.info)}${w.status === 'pending' ? `<div class="flex gap-2">${btn('wpaid', w.id, 'Mark as paid', 'bg-emerald-700 hover:bg-emerald-600')}${btn('wrej', w.id, 'Reject & refund', 'bg-red-700 hover:bg-red-600')}</div>` : `<div>${chip(w.status)}${w.txid ? ' <span class="text-stone-400">tx ' + w.txid + '</span>' : ''}</div>`}</div>`;
+        const dRow = d => `<div class="bg-stake-dark border ${d.status === 'pending' ? 'border-amber-700/50' : 'border-stake-card'} rounded-lg p-2 text-xs space-y-1"><div class="flex justify-between"><b class="text-white">${d.name} • ${money(d.amount)} <span class="text-stone-500">(${d.method})</span></b><span class="text-stone-500">${new Date(d.created).toLocaleString()}</span></div>${d.note ? `<div class="text-stone-300 break-all">${d.note}</div>` : ''}${infoLine(d.info)}${d.status === 'pending' && d.method === 'manual' ? `<div class="flex gap-2">${btn('dok', d.id, 'Approve & credit', 'bg-emerald-700 hover:bg-emerald-600')}${btn('drej', d.id, 'Reject', 'bg-red-700 hover:bg-red-600')}</div>` : `<div>${chip(d.status)}</div>`}</div>`;
         const list = (arr, f) => arr.length ? arr.slice(0, 12).map(f).join('') : '<div class="text-xs text-stone-500">Nothing here</div>';
-        el.innerHTML = `<div class="grid md:grid-cols-2 gap-4"><div class="space-y-1.5"><div class="font-bold text-white">💸 Withdrawal requests <span class="text-amber-300">(${pw.length} pending)</span></div>${list([...pw, ...W.filter(x => x.status !== 'pending')], wRow)}</div><div class="space-y-1.5"><div class="font-bold text-white">📥 Deposit requests <span class="text-amber-300">(${pd.length} pending)</span></div>${list([...pd, ...Dp.filter(x => x.status !== 'pending')], dRow)}</div></div>`;
+        const flagged = Object.values(Net.modData.users || {}).filter(x => x.flag);
+        const flagSection = `<div class="space-y-1.5 mt-4"><div class="font-bold text-white">🚩 Frozen accounts <span class="text-red-300">(${flagged.length})</span></div>${flagged.length ? flagged.map(x => `<div class="bg-stake-dark border border-red-800/50 rounded-lg p-2 text-xs space-y-1"><div class="flex justify-between"><b class="text-white">${x.name}${x.flag.banned ? ' <span class="text-red-300">(banned)</span>' : ''}</b><span class="text-stone-500">${new Date(x.flag.t).toLocaleString()}</span></div><div class="text-stone-300">${x.flag.reason}${x.flag.reset > 0 ? ' • balance reset: ' + money(x.flag.reset) : ''}</div><div class="text-stone-500 break-all">IP: ${(x.ips || []).join(', ') || '—'}</div><div class="flex gap-2">${btn('frestore', x.name, 'Restore (give balance back)', 'bg-emerald-700 hover:bg-emerald-600')}${x.flag.banned ? '' : btn('fban', x.name, 'Ban for good', 'bg-red-700 hover:bg-red-600')}</div></div>`).join('') : '<div class="text-xs text-stone-500">No frozen accounts</div>'}</div>`;
+        el.innerHTML = `<div class="grid md:grid-cols-2 gap-4"><div class="space-y-1.5"><div class="font-bold text-white">💸 Withdrawal requests <span class="text-amber-300">(${pw.length} pending)</span></div>${list([...pw, ...W.filter(x => x.status !== 'pending')], wRow)}</div><div class="space-y-1.5"><div class="font-bold text-white">📥 Deposit requests <span class="text-amber-300">(${pd.length} pending)</span></div>${list([...pd, ...Dp.filter(x => x.status !== 'pending')], dRow)}</div></div>${flagSection}`;
       }
       function onQueueClick(e) {
         const b = e.target.closest('[data-qa]'); if (!b) return; const id = b.dataset.id, a = b.dataset.qa;
@@ -2820,15 +2841,18 @@ Net.ready.then(async () => {
         else if (a === 'wrej') { if (confirm('Reject this withdrawal and refund the player?')) modApi('/api/mod/withdraw-reject', { id }, 'q-msg'); }
         else if (a === 'dok') { if (confirm('Credit this deposit to the player?')) modApi('/api/mod/deposit-approve', { id }, 'q-msg'); }
         else if (a === 'drej') modApi('/api/mod/deposit-reject', { id }, 'q-msg');
+        else if (a === 'frestore') { if (confirm('Restore this account and give back the balance that was reset?')) modApi('/api/mod/flag', { name: id, action: 'restore' }, 'q-msg'); }
+        else if (a === 'fban') { if (confirm('Ban this account for good?')) modApi('/api/mod/flag', { name: id, action: 'ban' }, 'q-msg'); }
       }
       function say(id, t, ok) { $(id).textContent = t; $(id).className = 'text-xs font-bold min-h-[1rem] ' + (ok ? 'text-stake-accent' : 'text-red-400'); }
       function promoList() {
         const on = window.Net && Net.on, c = on ? ((Net.modData && Net.modData.codes) || []) : read('stiku_promo_codes', []), u = on ? Object.fromEntries(c.map(x => [x.code, x.used || 0])) : read('stiku_promo_uses', {});
-        $('pc-list').innerHTML = c.map(x => `<div class="flex items-center justify-between bg-stake-dark border border-stake-card rounded-lg px-3 py-2 text-xs"><span><b class="text-white font-mono">${x.code}</b> • $${x.amount.toFixed(2)} • used ${u[x.code] || 0}/${x.maxUses}</span><button data-del="${x.code}" class="text-red-400 font-bold">Delete</button></div>`).join('') || '<div class="text-stone-500 text-xs">No promo codes yet</div>';
+        $('pc-list').innerHTML = c.map(x => `<div class="flex items-center justify-between bg-stake-dark border border-stake-card rounded-lg px-3 py-2 text-xs"><span><b class="text-white font-mono">${x.code}</b> • $${x.amount.toFixed(2)} • used ${u[x.code] || 0}/${x.maxUses}${x.minWager ? ' • wager $' + x.minWager : ''}${x.minDeposit ? ' • deposit $' + x.minDeposit : ''}</span><button data-del="${x.code}" class="text-red-400 font-bold">Delete</button></div>`).join('') || '<div class="text-stone-500 text-xs">No promo codes yet</div>';
         $('pc-list').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { if (on) return modApi('/api/mod/promo-delete', { code: b.dataset.del }, 'pc-msg'); localStorage.setItem('stiku_promo_codes', JSON.stringify(read('stiku_promo_codes', []).filter(x => x.code !== b.dataset.del))); promoList(); });
       }
       function wireTools() {
         $('mod-body').addEventListener('click', onQueueClick);
+        $('frz-go').onclick = () => { if (!(window.Net && Net.on)) return say('frz-msg', 'Needs the server.'); modApi('/api/mod/flag', { name: $('frz-user').value.trim(), action: 'freeze' }, 'frz-msg'); };
         $('reset-go').onclick = async () => {
           if (prompt("Type RESET to wipe every player's stats (balances are NOT changed).") !== 'RESET') return;
           if (window.Net && Net.on) { const r = await Net.api('/api/mod/reset-stats', {}, { 'x-mod': Net.modToken }); if (r.error) return alert(r.error); await refreshMod(); return alert(r.message); }
@@ -2845,13 +2869,13 @@ Net.ready.then(async () => {
           $('dep-amt').value = ''; render();
         };
         $('pc-go').onclick = () => {
-          if (window.Net && Net.on) return modApi('/api/mod/promo', { code: $('pc-code').value.trim(), amount: parseFloat($('pc-amt').value) || 0, max: +$('pc-max').value || 0 }, 'pc-msg').then(() => { $('pc-code').value = ''; });
+          if (window.Net && Net.on) return modApi('/api/mod/promo', { code: $('pc-code').value.trim(), amount: parseFloat($('pc-amt').value) || 0, max: +$('pc-max').value || 0, minWager: parseFloat($('pc-minw').value) || 0, minDeposit: parseFloat($('pc-mind').value) || 0 }, 'pc-msg').then(() => { $('pc-code').value = ''; });
           const code = $('pc-code').value.trim().toUpperCase(), amt = Math.round((parseFloat($('pc-amt').value) || 0) * 100) / 100, max = Math.floor(+$('pc-max').value) || 0, codes = read('stiku_promo_codes', []);
           if (!/^[A-Z0-9_-]{3,20}$/.test(code)) return say('pc-msg', 'Code: 3-20 letters, numbers, - or _.');
           if (!(amt > 0) || amt > 100000) return say('pc-msg', 'Enter a valid amount.');
           if (max < 1) return say('pc-msg', 'Max uses must be at least 1.');
           if (codes.some(x => x.code === code)) return say('pc-msg', 'That code already exists.');
-          codes.push({ code, amount: amt, maxUses: max, perAccount: 1, created: Date.now() }); localStorage.setItem('stiku_promo_codes', JSON.stringify(codes));
+          codes.push({ code, amount: amt, maxUses: max, perAccount: 1, minWager: parseFloat($('pc-minw').value) || 0, minDeposit: parseFloat($('pc-mind').value) || 0, created: Date.now() }); localStorage.setItem('stiku_promo_codes', JSON.stringify(codes));
           say('pc-msg', `Created ${code} ($${amt.toFixed(2)}, ${max} use${max > 1 ? 's' : ''}).`, true); $('pc-code').value = ''; promoList();
         };
       }
@@ -2886,6 +2910,7 @@ Net.ready.then(async () => {
     // Shows whether accounts are shared (server) or stored only in this browser (local).
     (() => {
       const $ = id => document.getElementById(id);
+      $('flag-logout').onclick = () => $('nav-auth').click();
       Net.ready.then(() => {
         const on = Net.on;
         $('mode-badge').textContent = on ? '🟢 Server connected' : '🟠 Local only'; $('mode-badge').title = on ? 'Accounts, balances, tips and promo codes are shared by everyone using this server.' : 'Accounts exist only in this browser. Open the site through your server to share them.';
@@ -2910,7 +2935,8 @@ Net.ready.then(async () => {
         return rows.length ? rows.map(r => `<div class="flex items-center justify-between gap-2 bg-stake-dark border border-stake-card rounded-lg px-3 py-2 text-xs"><span class="min-w-0"><b class="text-white">${r.k} ${money(r.a)}</b> <span class="text-stone-500 break-all">${new Date(r.t).toLocaleDateString()}${r.x ? ' • ' + r.x : ''}</span></span>${chip(r.s)}</div>`).join('') : '<div class="text-xs text-stone-500">No deposits or withdrawals yet</div>';
       }
       function render() {
-        const cfg = Net.cfg || {}, minD = cfg.minDeposit || 0.3, minW = cfg.minWithdraw || 2;
+        const cfg = Net.cfg || {}, minD = cfg.minDeposit || 0.3, minW = cfg.minWithdraw || 2, me = Net.me || {};
+        const wdn = cfg.wd && cfg.wd.needDeposit ? `<div class="text-[11px] font-bold ${(me.dep || 0) >= minD && (me.lw || 0) >= (me.dep || 0) * (cfg.wd.turnover || 0) ? 'text-emerald-300' : 'text-amber-300'}">To withdraw you need a deposit of at least ${money(minD)} and ${cfg.wd.turnover || 0}× wagering. You have deposited ${money(me.dep)} and wagered ${money(me.lw)}.</div>` : '';
         $('w-tab-dep').className = 'px-3 py-2 rounded-lg text-xs font-bold ' + (tab === 'deposit' ? 'bg-stake-accent text-stake-dark' : 'bg-stake-card text-stake-text');
         $('w-tab-wd').className = 'px-3 py-2 rounded-lg text-xs font-bold ' + (tab === 'withdraw' ? 'bg-stake-accent text-stake-dark' : 'bg-stake-card text-stake-text');
         const body = tab === 'deposit' ? `
@@ -2918,7 +2944,7 @@ Net.ready.then(async () => {
           ${cfg.autoDeposit ? `<div class="bg-stake-dark/60 border border-stake-card rounded-xl p-3 space-y-2"><div class="font-bold text-white">⚡ Automatic deposit (crypto)</div><input id="w-auto-amt" type="number" min="${minD}" step="0.01" placeholder="Amount in USD" class="${inp}"><button id="w-auto-go" class="btn-stiku-green w-full py-2.5 rounded-lg font-black text-xs uppercase">Pay with crypto</button><p class="text-[10px] text-stone-500">Opens a payment page. Your balance is credited automatically once the payment is confirmed.</p></div>` : ''}
           <div class="bg-stake-dark/60 border border-stake-card rounded-xl p-3 space-y-2"><div class="font-bold text-white">📝 Deposit request</div><p class="text-[10px] text-stone-400">Pay as instructed by the casino team, then tell us what you sent. A moderator checks it and credits your balance.</p>
             <input id="w-dep-amt" type="number" min="${minD}" step="0.01" placeholder="Amount you sent (USD)" class="${inp}"><input id="w-dep-note" maxlength="120" placeholder="Transaction ID / Discord name" class="${inp}"><button id="w-dep-go" class="w-full py-2.5 rounded-lg bg-stake-blue hover:bg-blue-600 text-white font-black text-xs uppercase">Send deposit request</button></div>`
-          : `<div class="text-xs text-stone-400">Your balance: <b class="text-white">${money(state.balance)}</b> • Minimum withdrawal ${money(minW)}. The amount is held right away and a moderator pays it manually.</div>
+          : `<div class="text-xs text-stone-400">Your balance: <b class="text-white">${money(state.balance)}</b> • Minimum withdrawal ${money(minW)}. The amount is held right away and a moderator pays it manually.</div>${wdn}
           <div class="bg-stake-dark/60 border border-stake-card rounded-xl p-3 space-y-2"><input id="w-wd-amt" type="number" min="${minW}" step="0.01" placeholder="Amount (USD)" class="${inp}"><input id="w-wd-dest" maxlength="150" placeholder="Where to send it (crypto address, Discord handle…)" class="${inp}"><button id="w-wd-go" class="w-full py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-black text-xs uppercase">Request withdrawal</button></div>`;
         $('w-body').innerHTML = body + '<div id="w-msg" class="text-xs font-bold min-h-[1rem]"></div><div class="text-[10px] font-bold uppercase text-stake-muted">History</div><div id="w-hist" class="space-y-1.5">' + hist() + '</div>';
         const go = (id, fn) => { const b = $(id); if (b) b.onclick = async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } }; };
